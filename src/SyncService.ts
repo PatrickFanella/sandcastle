@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { SandcastleConfig } from "./Config.js";
 import {
   type ExecResult,
   Sandbox,
@@ -55,6 +56,7 @@ const execOk = (
 export const syncIn = (
   hostRepoDir: string,
   sandboxRepoDir: string,
+  config?: SandcastleConfig,
 ): Effect.Effect<{ branch: string }, SandboxError, Sandbox> =>
   Effect.gen(function* () {
     const sandbox = yield* Sandbox;
@@ -135,6 +137,11 @@ export const syncIn = (
           `HEAD mismatch after sync: host=${hostHead} sandbox=${sandboxHead}`,
         ),
       );
+    }
+
+    // Run postSyncIn command if configured
+    if (config?.postSyncIn) {
+      yield* execOk(sandbox, config.postSyncIn, { cwd: sandboxRepoDir });
     }
 
     return { branch };

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
+import { readConfig } from "./Config.js";
 import { FilesystemSandbox } from "./FilesystemSandbox.js";
 import { syncIn, syncOut } from "./SyncService.js";
 
@@ -301,5 +302,65 @@ describe("syncOut", () => {
     expect(await getHead(hostDir)).toBe(baseHead);
     const content = await readFile(join(hostDir, "file.txt"), "utf-8");
     expect(content).toBe("original");
+  });
+});
+
+describe("readConfig", () => {
+  it("reads .sandcastle.json with postSyncIn", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "config-"));
+    await writeFile(
+      join(dir, ".sandcastle.json"),
+      JSON.stringify({ postSyncIn: "npm install" }),
+    );
+
+    const config = await Effect.runPromise(readConfig(dir));
+    expect(config.postSyncIn).toBe("npm install");
+  });
+
+  it("returns empty config when file is missing", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "config-"));
+
+    const config = await Effect.runPromise(readConfig(dir));
+    expect(config.postSyncIn).toBeUndefined();
+  });
+
+  it("returns empty config when file has no postSyncIn", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "config-"));
+    await writeFile(join(dir, ".sandcastle.json"), JSON.stringify({}));
+
+    const config = await Effect.runPromise(readConfig(dir));
+    expect(config.postSyncIn).toBeUndefined();
+  });
+});
+
+describe("postSyncIn", () => {
+  it("postSyncIn command runs after sync-in and its effects are visible", async () => {
+    const { hostDir, sandboxRepoDir, layer } = await setup();
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello", "initial commit");
+
+    const config = { postSyncIn: "echo done > setup-marker.txt" };
+
+    await Effect.runPromise(
+      syncIn(hostDir, sandboxRepoDir, config).pipe(Effect.provide(layer)),
+    );
+
+    const marker = await readFile(
+      join(sandboxRepoDir, "setup-marker.txt"),
+      "utf-8",
+    );
+    expect(marker.trim()).toBe("done");
+  });
+
+  it("sync-in works without config (no postSyncIn)", async () => {
+    const { hostDir, sandboxRepoDir, layer } = await setup();
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello", "initial commit");
+
+    await Effect.runPromise(
+      syncIn(hostDir, sandboxRepoDir).pipe(Effect.provide(layer)),
+    );
+
+    expect(await getHead(sandboxRepoDir)).toBe(await getHead(hostDir));
   });
 });
