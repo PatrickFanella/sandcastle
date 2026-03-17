@@ -63,6 +63,14 @@ The agent runs inside the container, working on open GitHub issues. Each iterati
 4. If the agent made commits, syncs them back to your host (via format-patch)
 5. Stops early if the agent emits a completion signal
 
+### `sandcastle interactive`
+
+Opens an interactive Claude Code session inside the sandbox. Syncs your repo in, launches Claude with TTY passthrough, and syncs changes back when you exit.
+
+| Option        | Required | Default          | Description           |
+| ------------- | -------- | ---------------- | --------------------- |
+| `--container` | No       | `claude-sandbox` | Docker container name |
+
 ### `sandcastle cleanup`
 
 Stops and removes the container and image.
