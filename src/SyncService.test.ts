@@ -305,6 +305,123 @@ describe("syncOut", () => {
   });
 });
 
+describe("round-trip", () => {
+  it("sync-in, make commit in sandbox, sync-out — host has the new commit", async () => {
+    const { hostDir, sandboxRepoDir, layer } = await setup();
+    await initRepo(hostDir);
+    await commitFile(hostDir, "file.txt", "original", "initial commit");
+
+    const baseHead = await syncInAndGetBase(hostDir, sandboxRepoDir, layer);
+    await initSandboxGit(sandboxRepoDir);
+
+    // Make a commit in sandbox
+    await commitFile(
+      sandboxRepoDir,
+      "feature.txt",
+      "new feature",
+      "add feature",
+    );
+
+    // Sync out
+    await Effect.runPromise(
+      syncOut(hostDir, sandboxRepoDir, baseHead).pipe(Effect.provide(layer)),
+    );
+
+    // Host should have the new commit and file
+    const content = await readFile(join(hostDir, "feature.txt"), "utf-8");
+    expect(content).toBe("new feature");
+
+    const { stdout } = await execAsync("git log --oneline", { cwd: hostDir });
+    expect(stdout).toContain("add feature");
+
+    // Original file still intact
+    const original = await readFile(join(hostDir, "file.txt"), "utf-8");
+    expect(original).toBe("original");
+  });
+
+  it("sync-in, sync-out, sync-in again — stable, no drift", async () => {
+    const { hostDir, sandboxRepoDir, layer } = await setup();
+    await initRepo(hostDir);
+    await commitFile(hostDir, "file.txt", "original", "initial commit");
+
+    // First round-trip: sync-in, then sync-out with no changes
+    const baseHead1 = await syncInAndGetBase(hostDir, sandboxRepoDir, layer);
+    await Effect.runPromise(
+      syncOut(hostDir, sandboxRepoDir, baseHead1).pipe(Effect.provide(layer)),
+    );
+
+    // Second sync-in
+    await Effect.runPromise(
+      syncIn(hostDir, sandboxRepoDir).pipe(Effect.provide(layer)),
+    );
+
+    // Sandbox should still match host exactly
+    expect(await getHead(sandboxRepoDir)).toBe(await getHead(hostDir));
+
+    const content = await readFile(join(sandboxRepoDir, "file.txt"), "utf-8");
+    expect(content).toBe("original");
+
+    // Working tree should be clean
+    const { stdout } = await execAsync("git status --porcelain", {
+      cwd: sandboxRepoDir,
+    });
+    expect(stdout.trim()).toBe("");
+  });
+});
+
+describe("failure cases", () => {
+  it("patch conflict — host changed between sync-in and sync-out", async () => {
+    const { hostDir, sandboxRepoDir, layer } = await setup();
+    await initRepo(hostDir);
+    await commitFile(hostDir, "shared.txt", "original", "initial commit");
+
+    const baseHead = await syncInAndGetBase(hostDir, sandboxRepoDir, layer);
+    await initSandboxGit(sandboxRepoDir);
+
+    // Sandbox modifies shared.txt
+    await writeFile(join(sandboxRepoDir, "shared.txt"), "sandbox version");
+    await execAsync("git add shared.txt", { cwd: sandboxRepoDir });
+    await execAsync('git commit -m "sandbox edit"', { cwd: sandboxRepoDir });
+
+    // Host also modifies shared.txt (creating a conflict)
+    await writeFile(join(hostDir, "shared.txt"), "host version");
+    await execAsync("git add shared.txt", { cwd: hostDir });
+    await execAsync('git commit -m "host edit"', { cwd: hostDir });
+
+    // syncOut should fail due to patch conflict
+    const result = Effect.runPromise(
+      syncOut(hostDir, sandboxRepoDir, baseHead).pipe(Effect.provide(layer)),
+    );
+    await expect(result).rejects.toThrow();
+  });
+
+  it("empty repo / initial commit edge case", async () => {
+    const { hostDir, sandboxRepoDir, layer } = await setup();
+    await initRepo(hostDir);
+
+    // Create a single initial commit (minimal repo)
+    await commitFile(hostDir, "readme.txt", "hello", "initial commit");
+
+    // Sync-in should work
+    await Effect.runPromise(
+      syncIn(hostDir, sandboxRepoDir).pipe(Effect.provide(layer)),
+    );
+
+    expect(await getHead(sandboxRepoDir)).toBe(await getHead(hostDir));
+
+    // Sync-out with no changes should be a no-op
+    const baseHead = await getHead(hostDir);
+    await Effect.runPromise(
+      syncOut(hostDir, sandboxRepoDir, baseHead).pipe(Effect.provide(layer)),
+    );
+
+    // Host unchanged
+    expect(await getHead(hostDir)).toBe(baseHead);
+    const content = await readFile(join(hostDir, "readme.txt"), "utf-8");
+    expect(content).toBe("hello");
+  });
+});
+
 describe("readConfig", () => {
   it("reads .sandcastle.json with postSyncIn", async () => {
     const dir = await mkdtemp(join(tmpdir(), "config-"));
