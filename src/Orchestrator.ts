@@ -94,7 +94,7 @@ const invokeAgent = (
       (line) => {
         const parsed = parseStreamJsonLine(line);
         if (parsed?.type === "text") {
-          process.stdout.write(parsed.text);
+          console.log(parsed.text);
         } else if (parsed?.type === "result") {
           resultText = parsed.result;
         }
