@@ -37,11 +37,11 @@ sandcastle cleanup-sandbox
 
 Tokens are resolved automatically from environment files and process environment variables. No CLI flags needed.
 
-| Variable                   | Purpose                      |
-| -------------------------- | ---------------------------- |
-| `CLAUDE_CODE_OAUTH_TOKEN`  | Claude Code OAuth token      |
-| `ANTHROPIC_API_KEY`        | Anthropic API key (alternative to OAuth) |
-| `GH_TOKEN`                 | GitHub personal access token |
+| Variable                  | Purpose                                  |
+| ------------------------- | ---------------------------------------- |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code OAuth token                  |
+| `ANTHROPIC_API_KEY`       | Anthropic API key (alternative to OAuth) |
+| `GH_TOKEN`                | GitHub personal access token             |
 
 You must set either `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` (or both). `GH_TOKEN` is always required.
 
@@ -87,12 +87,12 @@ Rebuilds the Docker image and restarts a container from an existing `.sandcastle
 
 Runs the orchestration loop: sync-in, invoke agent, sync-out, repeat.
 
-| Option          | Required | Default                  | Description                       |
-| --------------- | -------- | ------------------------ | --------------------------------- |
-| `--iterations`  | No       | `5`                      | Number of agent iterations to run |
-| `--container`   | No       | `claude-sandbox`         | Docker container name             |
-| `--image-name`  | No       | `sandcastle:local`       | Docker image name                 |
-| `--prompt-file` | No       | `.sandcastle/prompt.md`  | Path to the agent prompt file     |
+| Option          | Required | Default                 | Description                       |
+| --------------- | -------- | ----------------------- | --------------------------------- |
+| `--iterations`  | No       | `5`                     | Number of agent iterations to run |
+| `--container`   | No       | `claude-sandbox`        | Docker container name             |
+| `--image-name`  | No       | `sandcastle:local`      | Docker image name                 |
+| `--prompt-file` | No       | `.sandcastle/prompt.md` | Path to the agent prompt file     |
 
 The agent runs inside the container, working on open GitHub issues. Each iteration:
 
@@ -171,15 +171,33 @@ Place a `.sandcastle/config.json` file to configure advanced behavior:
 
 ```json
 {
-  "postSyncIn": "npm install",
+  "hooks": {
+    "onSandboxCreate": [
+      { "command": "apt-get update && apt-get install -y some-tool" }
+    ],
+    "onSandboxReady": [{ "command": "npm install" }]
+  },
   "defaultIterations": 10
 }
 ```
 
 | Field               | Type   | Description                                                                                                                 |
 | ------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `postSyncIn`        | string | Shell command to run inside the sandbox after each sync-in. Use this for dependency installation or build steps.            |
+| `hooks`             | object | Lifecycle hooks that run commands inside the sandbox. See below.                                                            |
 | `defaultIterations` | number | Default number of agent iterations for `sandcastle run`. Overridden by the `--iterations` CLI flag. Defaults to 5 if unset. |
+
+### Hooks
+
+Hooks are arrays of `{ "command": "..." }` objects executed sequentially inside the sandbox. If any command exits with a non-zero code, execution stops immediately with an error.
+
+| Hook              | When it runs                             | Working directory      |
+| ----------------- | ---------------------------------------- | ---------------------- |
+| `onSandboxCreate` | After container creation, before sync-in | Container default      |
+| `onSandboxReady`  | After sync-in completes                  | Sandbox repo directory |
+
+**`onSandboxCreate`** is useful for system-level setup that doesn't depend on repo files (e.g., installing OS packages).
+
+**`onSandboxReady`** runs after the repo is synced in. Use it for dependency installation or build steps (e.g., `npm install`).
 
 This file is not created by `init` — create it manually when needed.
 

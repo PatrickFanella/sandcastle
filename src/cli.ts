@@ -16,7 +16,7 @@ import { scaffold } from "./InitService.js";
 import { orchestrate } from "./Orchestrator.js";
 import { Sandbox, SandboxError } from "./Sandbox.js";
 import { DockerSandboxFactory, SandboxFactory } from "./SandboxFactory.js";
-import { syncIn, syncOut } from "./SyncService.js";
+import { runHooks, syncIn, syncOut } from "./SyncService.js";
 import { resolveTokens } from "./TokenResolver.js";
 
 // --- Shared options ---
@@ -181,16 +181,13 @@ const syncInCommand = Command.make(
 
       yield* Console.log(`Syncing ${hostRepoDir} into ${sandboxRepoDir}...`);
 
-      const config = yield* readConfig(hostRepoDir);
       const layer = useDocker
         ? DockerSandbox.layer(container.value)
         : FilesystemSandbox.layer(sandboxDir);
 
-      const { branch } = yield* syncIn(
-        hostRepoDir,
-        sandboxRepoDir,
-        config,
-      ).pipe(Effect.provide(layer));
+      const { branch } = yield* syncIn(hostRepoDir, sandboxRepoDir).pipe(
+        Effect.provide(layer),
+      );
 
       yield* Console.log(`Sync-in complete. Branch: ${branch}`);
     }),
@@ -359,9 +356,15 @@ const interactiveSession = (options: {
       Effect.gen(function* () {
         const sandbox = yield* Sandbox;
 
+        // Run onSandboxCreate hooks
+        yield* runHooks(config?.hooks?.onSandboxCreate);
+
         // Sync in
         yield* Console.log("Syncing repo into sandbox...");
-        yield* syncIn(hostRepoDir, sandboxRepoDir, config);
+        yield* syncIn(hostRepoDir, sandboxRepoDir);
+
+        // Run onSandboxReady hooks
+        yield* runHooks(config?.hooks?.onSandboxReady, { cwd: sandboxRepoDir });
 
         // Record base HEAD for sync-out
         const baseHeadResult = yield* sandbox.exec("git rev-parse HEAD", {

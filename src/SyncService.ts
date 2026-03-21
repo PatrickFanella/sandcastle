@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SandcastleConfig } from "./Config.js";
+import type { HookDefinition } from "./Config.js";
 import {
   type ExecResult,
   Sandbox,
@@ -37,7 +37,7 @@ const execHost = (
     );
   });
 
-const execOk = (
+export const execOk = (
   sandbox: SandboxService,
   command: string,
   options?: { cwd?: string },
@@ -53,10 +53,21 @@ const execOk = (
       : Effect.succeed(result),
   );
 
+export const runHooks = (
+  hooks: readonly HookDefinition[] | undefined,
+  options?: { cwd?: string },
+): Effect.Effect<void, SandboxError, Sandbox> =>
+  Effect.gen(function* () {
+    if (!hooks || hooks.length === 0) return;
+    const sandbox = yield* Sandbox;
+    for (const hook of hooks) {
+      yield* execOk(sandbox, hook.command, options);
+    }
+  });
+
 export const syncIn = (
   hostRepoDir: string,
   sandboxRepoDir: string,
-  config?: SandcastleConfig,
 ): Effect.Effect<{ branch: string }, SandboxError, Sandbox> =>
   Effect.gen(function* () {
     const sandbox = yield* Sandbox;
@@ -179,11 +190,6 @@ export const syncIn = (
           `HEAD mismatch after sync: host=${hostHead} sandbox=${sandboxHead}`,
         ),
       );
-    }
-
-    // Run postSyncIn command if configured
-    if (config?.postSyncIn) {
-      yield* execOk(sandbox, config.postSyncIn, { cwd: sandboxRepoDir });
     }
 
     return { branch };

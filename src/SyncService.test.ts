@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { readConfig } from "./Config.js";
 import { FilesystemSandbox } from "./FilesystemSandbox.js";
-import { syncIn, syncOut } from "./SyncService.js";
+import { runHooks, syncIn, syncOut } from "./SyncService.js";
 
 const execAsync = promisify(exec);
 
@@ -550,26 +550,28 @@ describe("failure cases", () => {
 });
 
 describe("readConfig", () => {
-  it("reads .sandcastle/config.json with postSyncIn", async () => {
+  it("reads .sandcastle/config.json with hooks", async () => {
     const dir = await mkdtemp(join(tmpdir(), "config-"));
     await mkdir(join(dir, ".sandcastle"), { recursive: true });
     await writeFile(
       join(dir, ".sandcastle", "config.json"),
-      JSON.stringify({ postSyncIn: "npm install" }),
+      JSON.stringify({
+        hooks: { onSandboxReady: [{ command: "npm install" }] },
+      }),
     );
 
     const config = await Effect.runPromise(readConfig(dir));
-    expect(config.postSyncIn).toBe("npm install");
+    expect(config.hooks?.onSandboxReady?.[0]?.command).toBe("npm install");
   });
 
   it("returns empty config when file is missing", async () => {
     const dir = await mkdtemp(join(tmpdir(), "config-"));
 
     const config = await Effect.runPromise(readConfig(dir));
-    expect(config.postSyncIn).toBeUndefined();
+    expect(config.hooks).toBeUndefined();
   });
 
-  it("returns empty config when file has no postSyncIn", async () => {
+  it("returns empty config when file has no hooks", async () => {
     const dir = await mkdtemp(join(tmpdir(), "config-"));
     await mkdir(join(dir, ".sandcastle"), { recursive: true });
     await writeFile(
@@ -578,7 +580,7 @@ describe("readConfig", () => {
     );
 
     const config = await Effect.runPromise(readConfig(dir));
-    expect(config.postSyncIn).toBeUndefined();
+    expect(config.hooks).toBeUndefined();
   });
 });
 
@@ -631,7 +633,7 @@ describe("git remotes", () => {
     const remotes = new Map<string, string>();
     for (const line of stdout.trim().split("\n")) {
       const match = line.match(/^(\S+)\t(\S+)\s+\(fetch\)$/);
-      if (match) remotes.set(match[1], match[2]);
+      if (match) remotes.set(match[1]!, match[2]!);
     }
 
     expect(remotes.get("origin")).toBe("https://github.com/foo/bar.git");
@@ -640,16 +642,19 @@ describe("git remotes", () => {
   });
 });
 
-describe("postSyncIn", () => {
-  it("postSyncIn command runs after sync-in and its effects are visible", async () => {
+describe("hooks", () => {
+  it("onSandboxReady hooks run after sync-in and effects are visible", async () => {
     const { hostDir, sandboxRepoDir, layer } = await setup();
     await initRepo(hostDir);
     await commitFile(hostDir, "hello.txt", "hello", "initial commit");
 
-    const config = { postSyncIn: "echo done > setup-marker.txt" };
-
     await Effect.runPromise(
-      syncIn(hostDir, sandboxRepoDir, config).pipe(Effect.provide(layer)),
+      syncIn(hostDir, sandboxRepoDir).pipe(Effect.provide(layer)),
+    );
+
+    const hooks = [{ command: "echo done > setup-marker.txt" }];
+    await Effect.runPromise(
+      runHooks(hooks, { cwd: sandboxRepoDir }).pipe(Effect.provide(layer)),
     );
 
     const marker = await readFile(
@@ -659,7 +664,21 @@ describe("postSyncIn", () => {
     expect(marker.trim()).toBe("done");
   });
 
-  it("sync-in works without config (no postSyncIn)", async () => {
+  it("runHooks is a no-op when hooks is undefined", async () => {
+    const { layer } = await setup();
+
+    await Effect.runPromise(runHooks(undefined).pipe(Effect.provide(layer)));
+  });
+
+  it("runHooks is a no-op when hooks is empty array", async () => {
+    const { layer } = await setup();
+
+    await Effect.runPromise(
+      runHooks([], { cwd: "/tmp" }).pipe(Effect.provide(layer)),
+    );
+  });
+
+  it("runHooks fails on non-zero exit code", async () => {
     const { hostDir, sandboxRepoDir, layer } = await setup();
     await initRepo(hostDir);
     await commitFile(hostDir, "hello.txt", "hello", "initial commit");
@@ -668,6 +687,32 @@ describe("postSyncIn", () => {
       syncIn(hostDir, sandboxRepoDir).pipe(Effect.provide(layer)),
     );
 
-    expect(await getHead(sandboxRepoDir)).toBe(await getHead(hostDir));
+    const hooks = [{ command: "exit 1" }];
+    await expect(
+      Effect.runPromise(
+        runHooks(hooks, { cwd: sandboxRepoDir }).pipe(Effect.provide(layer)),
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("runHooks executes sequentially in order", async () => {
+    const { hostDir, sandboxRepoDir, layer } = await setup();
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello", "initial commit");
+
+    await Effect.runPromise(
+      syncIn(hostDir, sandboxRepoDir).pipe(Effect.provide(layer)),
+    );
+
+    const hooks = [
+      { command: "echo first > order.txt" },
+      { command: "echo second >> order.txt" },
+    ];
+    await Effect.runPromise(
+      runHooks(hooks, { cwd: sandboxRepoDir }).pipe(Effect.provide(layer)),
+    );
+
+    const content = await readFile(join(sandboxRepoDir, "order.txt"), "utf-8");
+    expect(content.trim()).toBe("first\nsecond");
   });
 });

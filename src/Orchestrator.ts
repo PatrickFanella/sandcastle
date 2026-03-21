@@ -2,7 +2,7 @@ import { Console, Effect } from "effect";
 import type { SandcastleConfig } from "./Config.js";
 import { Sandbox, SandboxError, type SandboxService } from "./Sandbox.js";
 import { SandboxFactory } from "./SandboxFactory.js";
-import { syncIn, syncOut } from "./SyncService.js";
+import { runHooks, syncIn, syncOut } from "./SyncService.js";
 
 const execOk = (
   sandbox: SandboxService,
@@ -154,9 +154,17 @@ export const orchestrate = (
         Effect.gen(function* () {
           const sandbox = yield* Sandbox;
 
+          // Run onSandboxCreate hooks (before sync-in)
+          yield* runHooks(config?.hooks?.onSandboxCreate);
+
           // Sync-in for this iteration's fresh sandbox
           yield* Console.log("Syncing repo into sandbox...");
-          yield* syncIn(hostRepoDir, sandboxRepoDir, config);
+          yield* syncIn(hostRepoDir, sandboxRepoDir);
+
+          // Run onSandboxReady hooks (after sync-in)
+          yield* runHooks(config?.hooks?.onSandboxReady, {
+            cwd: sandboxRepoDir,
+          });
 
           // Record HEAD before agent runs
           const baseHead = yield* getSandboxHead(sandbox, sandboxRepoDir);

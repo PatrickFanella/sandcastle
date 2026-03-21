@@ -91,7 +91,7 @@ describe("sandcastle CLI", () => {
     expect(content).toBe("from sandbox");
   });
 
-  it("sync-in respects .sandcastle/config.json postSyncIn config", async () => {
+  it("sync-in does not run hooks (hooks run via orchestrator)", async () => {
     const hostDir = await mkdtemp(join(tmpdir(), "cli-host-"));
     const sandboxDir = await mkdtemp(join(tmpdir(), "cli-sandbox-"));
     const sandboxRepoDir = join(sandboxDir, "repo");
@@ -100,7 +100,9 @@ describe("sandcastle CLI", () => {
     await mkdir(join(hostDir, ".sandcastle"));
     await writeFile(
       join(hostDir, ".sandcastle", "config.json"),
-      JSON.stringify({ postSyncIn: "touch post-sync-marker" }),
+      JSON.stringify({
+        hooks: { onSandboxReady: [{ command: "touch post-sync-marker" }] },
+      }),
     );
     await execAsync("git add -A && git commit -m 'add config'", {
       cwd: hostDir,
@@ -108,11 +110,10 @@ describe("sandcastle CLI", () => {
 
     await runCli(`sync-in --sandbox-dir "${sandboxDir}"`, hostDir);
 
-    // Verify postSyncIn ran
-    const { stdout } = await execAsync("ls post-sync-marker", {
-      cwd: sandboxRepoDir,
-    });
-    expect(stdout.trim()).toBe("post-sync-marker");
+    // Hooks should NOT have run from bare sync-in
+    await expect(
+      execAsync("ls post-sync-marker", { cwd: sandboxRepoDir }),
+    ).rejects.toThrow();
   });
 
   it("shows help with --help flag", async () => {
