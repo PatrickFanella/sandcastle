@@ -33,6 +33,13 @@ const getHead = async (dir: string) => {
   return stdout.trim();
 };
 
+const getBranch = async (dir: string) => {
+  const { stdout } = await execAsync("git rev-parse --abbrev-ref HEAD", {
+    cwd: dir,
+  });
+  return stdout.trim();
+};
+
 const setup = async () => {
   const hostDir = await mkdtemp(join(tmpdir(), "host-"));
   const sandboxDir = await mkdtemp(join(tmpdir(), "sandbox-"));
@@ -155,6 +162,89 @@ describe("syncIn", () => {
     const { stdout: files } = await execAsync("ls", { cwd: sandboxRepoDir });
     expect(files).not.toContain("sandbox-only.txt");
     expect(files).not.toContain("untracked.txt");
+  });
+
+  it("host on non-main branch — sandbox checks out that branch", async () => {
+    const { hostDir, sandboxRepoDir, layer } = await setup();
+    await initRepo(hostDir);
+    await commitFile(hostDir, "base.txt", "base", "initial on main");
+
+    // Create and switch to a feature branch
+    await execAsync("git checkout -b feature-xyz", { cwd: hostDir });
+    await commitFile(hostDir, "feature.txt", "feature", "feature commit");
+
+    const result = await Effect.runPromise(
+      syncIn(hostDir, sandboxRepoDir).pipe(Effect.provide(layer)),
+    );
+
+    expect(result.branch).toBe("feature-xyz");
+    expect(await getBranch(sandboxRepoDir)).toBe("feature-xyz");
+    expect(await getHead(sandboxRepoDir)).toBe(await getHead(hostDir));
+    expect(await readFile(join(sandboxRepoDir, "feature.txt"), "utf-8")).toBe(
+      "feature",
+    );
+  });
+
+  it("branch with commits ahead of main — sandbox has divergent history", async () => {
+    const { hostDir, sandboxRepoDir, layer } = await setup();
+    await initRepo(hostDir);
+    await commitFile(hostDir, "base.txt", "base", "initial on main");
+
+    await execAsync("git checkout -b ahead-branch", { cwd: hostDir });
+    await commitFile(hostDir, "one.txt", "one", "branch commit 1");
+    await commitFile(hostDir, "two.txt", "two", "branch commit 2");
+
+    const result = await Effect.runPromise(
+      syncIn(hostDir, sandboxRepoDir).pipe(Effect.provide(layer)),
+    );
+
+    expect(result.branch).toBe("ahead-branch");
+    expect(await getBranch(sandboxRepoDir)).toBe("ahead-branch");
+    expect(await getHead(sandboxRepoDir)).toBe(await getHead(hostDir));
+
+    // Both branch commits are present
+    const { stdout } = await execAsync("git log --oneline", {
+      cwd: sandboxRepoDir,
+    });
+    expect(stdout).toContain("branch commit 1");
+    expect(stdout).toContain("branch commit 2");
+
+    // Files from branch exist
+    expect(await readFile(join(sandboxRepoDir, "one.txt"), "utf-8")).toBe(
+      "one",
+    );
+    expect(await readFile(join(sandboxRepoDir, "two.txt"), "utf-8")).toBe(
+      "two",
+    );
+  });
+
+  it("re-sync after host switches branches — sandbox follows to new branch", async () => {
+    const { hostDir, sandboxRepoDir, layer } = await setup();
+    await initRepo(hostDir);
+    await commitFile(hostDir, "base.txt", "base", "initial on main");
+
+    // First sync on feature-a
+    await execAsync("git checkout -b feature-a", { cwd: hostDir });
+    await commitFile(hostDir, "a.txt", "a", "commit on a");
+
+    await Effect.runPromise(
+      syncIn(hostDir, sandboxRepoDir).pipe(Effect.provide(layer)),
+    );
+    expect(await getBranch(sandboxRepoDir)).toBe("feature-a");
+
+    // Host switches to feature-b
+    await execAsync("git checkout main", { cwd: hostDir });
+    await execAsync("git checkout -b feature-b", { cwd: hostDir });
+    await commitFile(hostDir, "b.txt", "b", "commit on b");
+
+    // Re-sync
+    const result = await Effect.runPromise(
+      syncIn(hostDir, sandboxRepoDir).pipe(Effect.provide(layer)),
+    );
+
+    expect(result.branch).toBe("feature-b");
+    expect(await getBranch(sandboxRepoDir)).toBe("feature-b");
+    expect(await getHead(sandboxRepoDir)).toBe(await getHead(hostDir));
   });
 });
 
@@ -366,6 +456,49 @@ describe("round-trip", () => {
       cwd: sandboxRepoDir,
     });
     expect(stdout.trim()).toBe("");
+  });
+
+  it("round-trip on non-main branch — patches apply to correct branch on host", async () => {
+    const { hostDir, sandboxRepoDir, layer } = await setup();
+    await initRepo(hostDir);
+    await commitFile(hostDir, "base.txt", "base", "initial on main");
+
+    // Host switches to feature branch
+    await execAsync("git checkout -b feature-round-trip", { cwd: hostDir });
+    await commitFile(hostDir, "on-branch.txt", "branch", "branch commit");
+
+    const result = await Effect.runPromise(
+      syncIn(hostDir, sandboxRepoDir).pipe(Effect.provide(layer)),
+    );
+    const baseHead = await getHead(sandboxRepoDir);
+    expect(result.branch).toBe("feature-round-trip");
+
+    // Agent makes a commit in the sandbox
+    await initSandboxGit(sandboxRepoDir);
+    await commitFile(
+      sandboxRepoDir,
+      "agent-work.txt",
+      "agent output",
+      "agent commit",
+    );
+
+    // Sync out
+    await Effect.runPromise(
+      syncOut(hostDir, sandboxRepoDir, baseHead).pipe(Effect.provide(layer)),
+    );
+
+    // Host should still be on the feature branch
+    expect(await getBranch(hostDir)).toBe("feature-round-trip");
+
+    // Agent's commit landed on the feature branch
+    const content = await readFile(join(hostDir, "agent-work.txt"), "utf-8");
+    expect(content).toBe("agent output");
+
+    const { stdout: log } = await execAsync("git log --oneline", {
+      cwd: hostDir,
+    });
+    expect(log).toContain("agent commit");
+    expect(log).toContain("branch commit");
   });
 });
 

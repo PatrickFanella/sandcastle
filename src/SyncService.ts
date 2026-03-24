@@ -108,9 +108,13 @@ export const syncIn = (
         `git fetch "${bundleSandboxPath}" "${branch}:refs/sandcastle/sync" --force`,
         { cwd: sandboxRepoDir },
       );
-      yield* execOk(sandbox, `git checkout -f "${branch}"`, {
-        cwd: sandboxRepoDir,
-      });
+      yield* execOk(
+        sandbox,
+        `git checkout -B "${branch}" refs/sandcastle/sync`,
+        {
+          cwd: sandboxRepoDir,
+        },
+      );
       yield* execOk(sandbox, "git reset --hard refs/sandcastle/sync", {
         cwd: sandboxRepoDir,
       });
