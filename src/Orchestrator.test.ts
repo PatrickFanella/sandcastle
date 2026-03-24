@@ -180,7 +180,7 @@ describe("Orchestrator", () => {
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 1,
-        repoFullName: "test/repo",
+
         prompt: "do some work",
       }).pipe(Effect.provide(factoryLayer)),
     );
@@ -211,7 +211,7 @@ describe("Orchestrator", () => {
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 5,
-        repoFullName: "test/repo",
+
         prompt: "do some work",
       }).pipe(Effect.provide(factoryLayer)),
     );
@@ -255,7 +255,7 @@ describe("Orchestrator", () => {
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 5,
-        repoFullName: "test/repo",
+
         prompt: "do some work",
       }).pipe(Effect.provide(factoryLayer)),
     );
@@ -288,7 +288,7 @@ describe("Orchestrator", () => {
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 2,
-        repoFullName: "test/repo",
+
         prompt: "do some work",
       }).pipe(Effect.provide(factoryLayer)),
     );
@@ -330,7 +330,7 @@ describe("Orchestrator", () => {
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 3,
-        repoFullName: "test/repo",
+
         prompt: "test isolation",
       }).pipe(Effect.provide(factoryLayer)),
     );
@@ -453,7 +453,7 @@ describe("Orchestrator error handling", () => {
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 1,
-        repoFullName: "test/repo",
+
         prompt: "do some work",
       }).pipe(Effect.provide(factoryLayer)),
     );
@@ -510,7 +510,7 @@ describe("Orchestrator error handling", () => {
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 5,
-        repoFullName: "test/repo",
+
         prompt: "do some work",
       }).pipe(Effect.provide(factoryLayer)),
     );
@@ -589,7 +589,7 @@ describe("Orchestrator error handling", () => {
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 3,
-        repoFullName: "test/repo",
+
         prompt: "do some work",
       }).pipe(Effect.provide(factoryLayer)),
     );
@@ -612,7 +612,7 @@ describe("Orchestrator error handling", () => {
         hostRepoDir: "/nonexistent/repo",
         sandboxRepoDir,
         iterations: 1,
-        repoFullName: "test/repo",
+
         prompt: "do some work",
       }).pipe(Effect.provide(factoryLayer)),
     );
@@ -673,7 +673,7 @@ describe("Orchestrator error handling", () => {
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 1,
-        repoFullName: "test/repo",
+
         prompt: "do some work",
       }).pipe(Effect.provide(factoryLayer)),
     );
@@ -732,7 +732,7 @@ describe("Orchestrator streaming", () => {
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 1,
-        repoFullName: "test/repo",
+
         prompt: "do some work",
       }).pipe(Effect.provide(factoryLayer)),
     );
@@ -760,12 +760,138 @@ describe("Orchestrator streaming", () => {
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 5,
-        repoFullName: "test/repo",
+
         prompt: "do some work",
       }).pipe(Effect.provide(factoryLayer)),
     );
 
     expect(result.iterationsRun).toBe(1);
     expect(result.complete).toBe(true);
+  });
+});
+
+describe("Orchestrator prompt preprocessing", () => {
+  it("preprocesses !`command` expressions in the prompt before invoking agent", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "orch-preproc-host-"));
+
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello", "initial commit");
+
+    let capturedPrompt = "";
+
+    const { factoryLayer, sandboxRepoDir } = makeTestSandboxFactory((dir) => {
+      const fsLayer = FilesystemSandbox.layer(dir);
+      return Layer.succeed(Sandbox, {
+        exec: (command, options) =>
+          Effect.flatMap(Sandbox, (real) => real.exec(command, options)).pipe(
+            Effect.provide(fsLayer),
+          ),
+        execStreaming: (command, onStdoutLine, options) => {
+          if (command.startsWith("claude ")) {
+            // Capture the prompt passed to claude
+            capturedPrompt = command;
+            const output = "Done.";
+            const streamOutput = toStreamJson(output);
+            for (const line of streamOutput.split("\n")) {
+              onStdoutLine(line);
+            }
+            return Effect.succeed({
+              stdout: streamOutput,
+              stderr: "",
+              exitCode: 0,
+            });
+          }
+          return Effect.flatMap(Sandbox, (real) =>
+            real.execStreaming(command, onStdoutLine, options),
+          ).pipe(Effect.provide(fsLayer));
+        },
+        copyIn: (hostPath, sandboxPath) =>
+          Effect.flatMap(Sandbox, (real) =>
+            real.copyIn(hostPath, sandboxPath),
+          ).pipe(Effect.provide(fsLayer)),
+        copyOut: (sandboxPath, hostPath) =>
+          Effect.flatMap(Sandbox, (real) =>
+            real.copyOut(sandboxPath, hostPath),
+          ).pipe(Effect.provide(fsLayer)),
+      });
+    });
+
+    await Effect.runPromise(
+      orchestrate({
+        hostRepoDir: hostDir,
+        sandboxRepoDir,
+        iterations: 1,
+        prompt: "Context: !`echo hello-from-sandbox`\n\nDo the work.",
+      }).pipe(Effect.provide(factoryLayer)),
+    );
+
+    // The prompt should have !`echo hello-from-sandbox` replaced with "hello-from-sandbox"
+    expect(capturedPrompt).toContain("hello-from-sandbox");
+    expect(capturedPrompt).not.toContain("!`echo");
+  });
+
+  it("passes prompt through unchanged when no !`command` expressions", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "orch-nopreproc-host-"));
+
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello", "initial commit");
+
+    let capturedPrompt = "";
+
+    const { factoryLayer, sandboxRepoDir } = makeTestSandboxFactory((dir) =>
+      makeMockAgentLayer(dir, async () => {
+        return "Done.";
+      }),
+    );
+
+    // Intercept to capture prompt — use the simpler mock that captures command
+    const { factoryLayer: fl2, sandboxRepoDir: sr2 } = makeTestSandboxFactory(
+      (dir) => {
+        const fsLayer = FilesystemSandbox.layer(dir);
+        return Layer.succeed(Sandbox, {
+          exec: (command, options) =>
+            Effect.flatMap(Sandbox, (real) => real.exec(command, options)).pipe(
+              Effect.provide(fsLayer),
+            ),
+          execStreaming: (command, onStdoutLine, options) => {
+            if (command.startsWith("claude ")) {
+              capturedPrompt = command;
+              const output = "Done.";
+              const streamOutput = toStreamJson(output);
+              for (const line of streamOutput.split("\n")) {
+                onStdoutLine(line);
+              }
+              return Effect.succeed({
+                stdout: streamOutput,
+                stderr: "",
+                exitCode: 0,
+              });
+            }
+            return Effect.flatMap(Sandbox, (real) =>
+              real.execStreaming(command, onStdoutLine, options),
+            ).pipe(Effect.provide(fsLayer));
+          },
+          copyIn: (hostPath, sandboxPath) =>
+            Effect.flatMap(Sandbox, (real) =>
+              real.copyIn(hostPath, sandboxPath),
+            ).pipe(Effect.provide(fsLayer)),
+          copyOut: (sandboxPath, hostPath) =>
+            Effect.flatMap(Sandbox, (real) =>
+              real.copyOut(sandboxPath, hostPath),
+            ).pipe(Effect.provide(fsLayer)),
+        });
+      },
+    );
+
+    await Effect.runPromise(
+      orchestrate({
+        hostRepoDir: hostDir,
+        sandboxRepoDir: sr2,
+        iterations: 1,
+        prompt: "Just a plain prompt with no commands.",
+      }).pipe(Effect.provide(fl2)),
+    );
+
+    expect(capturedPrompt).toContain("Just a plain prompt with no commands.");
   });
 });

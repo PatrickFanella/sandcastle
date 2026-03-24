@@ -1,8 +1,7 @@
 import { Command, Options } from "@effect/cli";
 import { Console, Effect } from "effect";
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { access } from "node:fs/promises";
-import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { readConfig } from "./Config.js";
 import { DockerSandbox } from "./DockerSandbox.js";
@@ -14,6 +13,7 @@ import {
 } from "./DockerLifecycle.js";
 import { scaffold } from "./InitService.js";
 import { orchestrate } from "./Orchestrator.js";
+import { resolvePrompt } from "./PromptResolver.js";
 import { SandboxError } from "./Sandbox.js";
 import { DockerSandboxFactory, SandboxFactory } from "./SandboxFactory.js";
 import { withSandboxLifecycle } from "./SandboxLifecycle.js";
@@ -236,6 +236,11 @@ const iterationsOption = Options.integer("iterations").pipe(
   Options.optional,
 );
 
+const promptOption = Options.text("prompt").pipe(
+  Options.withDescription("Inline prompt string for the agent"),
+  Options.optional,
+);
+
 const promptFileOption = Options.file("prompt-file").pipe(
   Options.withDescription("Path to the prompt file for the agent"),
   Options.optional,
@@ -246,47 +251,22 @@ const branchOption = Options.text("branch").pipe(
   Options.optional,
 );
 
-const detectRepoFullName = (cwd: string): Effect.Effect<string, SandboxError> =>
-  Effect.async((resume) => {
-    execFile(
-      "gh",
-      ["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
-      { cwd },
-      (error, stdout) => {
-        if (error) {
-          resume(
-            Effect.fail(
-              new SandboxError(
-                "detectRepo",
-                `Failed to detect repo name: ${error.message}`,
-              ),
-            ),
-          );
-        } else {
-          resume(Effect.succeed(stdout.toString().trim()));
-        }
-      },
-    );
-  });
-
 const runCommand = Command.make(
   "run",
   {
     iterations: iterationsOption,
     imageName: imageNameOption,
+    prompt: promptOption,
     promptFile: promptFileOption,
     branch: branchOption,
   },
-  ({ iterations, imageName, promptFile, branch }) =>
+  ({ iterations, imageName, prompt, promptFile, branch }) =>
     Effect.gen(function* () {
       const hostRepoDir = process.cwd();
       yield* requireConfigDir(hostRepoDir);
 
       const repoName = hostRepoDir.split("/").pop()!;
       const sandboxRepoDir = `${SANDBOX_REPOS_DIR}/${repoName}`;
-
-      // Detect repo full name for issue fetching
-      const repoFullName = yield* detectRepoFullName(hostRepoDir);
 
       // Resolve auth tokens
       const tokens = yield* Effect.tryPromise({
@@ -295,15 +275,12 @@ const runCommand = Command.make(
           new SandboxError("run", `${e instanceof Error ? e.message : e}`),
       });
 
-      // Load prompt — default to .sandcastle/prompt.md relative to cwd
-      const promptPath =
-        promptFile._tag === "Some"
-          ? resolve(promptFile.value)
-          : join(hostRepoDir, CONFIG_DIR, "prompt.md");
-      const prompt = yield* Effect.tryPromise({
-        try: () => readFile(promptPath, "utf-8"),
-        catch: (e) =>
-          new SandboxError("readPrompt", `Failed to read prompt: ${e}`),
+      // Resolve prompt via PromptResolver
+      const resolvedPrompt = yield* resolvePrompt({
+        prompt: prompt._tag === "Some" ? prompt.value : undefined,
+        promptFile:
+          promptFile._tag === "Some" ? resolve(promptFile.value) : undefined,
+        cwd: hostRepoDir,
       });
 
       // Read config
@@ -318,7 +295,6 @@ const runCommand = Command.make(
       const resolvedBranch = branch._tag === "Some" ? branch.value : undefined;
 
       yield* Console.log(`=== SANDCASTLE RUN ===`);
-      yield* Console.log(`Repo:       ${repoFullName}`);
       yield* Console.log(`Image:      ${imageName}`);
       yield* Console.log(`Iterations: ${resolvedIterations}`);
       if (resolvedBranch) {
@@ -337,8 +313,7 @@ const runCommand = Command.make(
         sandboxRepoDir,
         iterations: resolvedIterations,
         config,
-        repoFullName,
-        prompt,
+        prompt: resolvedPrompt,
         branch: resolvedBranch,
       }).pipe(Effect.provide(factoryLayer));
 

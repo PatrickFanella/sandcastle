@@ -1,36 +1,9 @@
 import { Console, Effect } from "effect";
 import type { SandcastleConfig } from "./Config.js";
-import { Sandbox, SandboxError, type SandboxService } from "./Sandbox.js";
+import { preprocessPrompt } from "./PromptPreprocessor.js";
+import { SandboxError, type SandboxService } from "./Sandbox.js";
 import { SandboxFactory } from "./SandboxFactory.js";
 import { withSandboxLifecycle } from "./SandboxLifecycle.js";
-
-const fetchIssues = (
-  sandbox: SandboxService,
-  sandboxRepoDir: string,
-  repoFullName: string,
-): Effect.Effect<string, SandboxError> =>
-  Effect.map(
-    sandbox.exec(
-      `gh issue list --repo "${repoFullName}" --state open --json number,title,body,comments`,
-      { cwd: sandboxRepoDir },
-    ),
-    (result) => (result.exitCode === 0 ? result.stdout.trim() : "[]"),
-  );
-
-const fetchRalphCommits = (
-  sandbox: SandboxService,
-  sandboxRepoDir: string,
-): Effect.Effect<string, SandboxError> =>
-  Effect.map(
-    sandbox.exec(
-      'git log --grep="RALPH" -n 10 --format="%H%n%ad%n%B---" --date=short',
-      { cwd: sandboxRepoDir },
-    ),
-    (result) =>
-      result.exitCode === 0 && result.stdout.trim().length > 0
-        ? result.stdout.trim()
-        : "No RALPH commits found",
-  );
 
 /** Extract displayable text from a stream-json line */
 export const parseStreamJsonLine = (
@@ -99,7 +72,6 @@ export interface OrchestrateOptions {
   readonly sandboxRepoDir: string;
   readonly iterations: number;
   readonly config?: SandcastleConfig;
-  readonly repoFullName: string;
   readonly prompt: string;
   readonly branch?: string;
 }
@@ -114,15 +86,8 @@ export const orchestrate = (
 ): Effect.Effect<OrchestrateResult, SandboxError, SandboxFactory> =>
   Effect.gen(function* () {
     const factory = yield* SandboxFactory;
-    const {
-      hostRepoDir,
-      sandboxRepoDir,
-      iterations,
-      config,
-      repoFullName,
-      prompt,
-      branch,
-    } = options;
+    const { hostRepoDir, sandboxRepoDir, iterations, config, prompt, branch } =
+      options;
 
     for (let i = 1; i <= iterations; i++) {
       yield* Console.log(`\n=== Iteration ${i}/${iterations} ===\n`);
@@ -132,19 +97,12 @@ export const orchestrate = (
           { hostRepoDir, sandboxRepoDir, hooks: config?.hooks, branch },
           (ctx) =>
             Effect.gen(function* () {
-              // Fetch context
-              const issues = yield* fetchIssues(
-                ctx.sandbox,
-                ctx.sandboxRepoDir,
-                repoFullName,
-              );
-              const ralphCommits = yield* fetchRalphCommits(
+              // Preprocess prompt (run !`command` expressions inside sandbox)
+              const fullPrompt = yield* preprocessPrompt(
+                prompt,
                 ctx.sandbox,
                 ctx.sandboxRepoDir,
               );
-
-              // Build full prompt with context
-              const fullPrompt = `ISSUES: ${issues}\n\nPrevious RALPH commits: ${ralphCommits}\n\n${prompt}`;
 
               // Invoke the agent
               yield* Console.log("Running agent...");
