@@ -83,6 +83,7 @@ const invokeAgent = (
   sandboxRepoDir: string,
   prompt: string,
   model: string,
+  onText: (text: string) => void,
 ): Effect.Effect<{ result: string; usage: TokenUsage | null }, SandboxError> =>
   Effect.gen(function* () {
     let resultText = "";
@@ -93,7 +94,7 @@ const invokeAgent = (
       (line) => {
         const parsed = parseStreamJsonLine(line);
         if (parsed?.type === "text") {
-          console.log(parsed.text);
+          onText(parsed.text);
         } else if (parsed?.type === "result") {
           resultText = parsed.result;
           tokenUsage = parsed.usage;
@@ -179,6 +180,8 @@ export const orchestrate = (
               );
 
               // Invoke the agent
+              const onText = (text: string) =>
+                Effect.runSync(display.text(text));
               const { result: agentOutput, usage } = yield* display.spinner(
                 "Running agent...",
                 invokeAgent(
@@ -186,6 +189,7 @@ export const orchestrate = (
                   ctx.sandboxRepoDir,
                   fullPrompt,
                   resolvedModel,
+                  onText,
                 ),
               );
 

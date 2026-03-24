@@ -14,7 +14,8 @@ export type DisplayEntry =
       readonly _tag: "summary";
       readonly title: string;
       readonly rows: Record<string, string>;
-    };
+    }
+  | { readonly _tag: "text"; readonly message: string };
 
 export interface DisplayService {
   readonly status: (message: string, severity: Severity) => Effect.Effect<void>;
@@ -28,6 +29,8 @@ export interface DisplayService {
     title: string,
     rows: Record<string, string>,
   ) => Effect.Effect<void>;
+
+  readonly text: (message: string) => Effect.Effect<void>;
 }
 
 export class Display extends Context.Tag("Display")<
@@ -57,6 +60,12 @@ export const SilentDisplay = {
         Ref.update(ref, (entries) => [
           ...entries,
           { _tag: "summary" as const, title, rows },
+        ]),
+
+      text: (message) =>
+        Ref.update(ref, (entries) => [
+          ...entries,
+          { _tag: "text" as const, message },
         ]),
     }),
 };
@@ -98,5 +107,7 @@ export const ClackDisplay = {
           .join("\n");
         clack.note(lines, title);
       }),
+
+    text: (message) => Effect.sync(() => clack.log.message(message)),
   }),
 };
