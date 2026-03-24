@@ -89,6 +89,20 @@ export const syncIn = (
     const bundleHostPath = join(bundleDir, "repo.bundle");
     yield* execHost(`git bundle create "${bundleHostPath}" --all`, hostRepoDir);
 
+    // Detect if --branch target exists on the host
+    const branchExistsOnHost =
+      branch !== hostBranch
+        ? yield* Effect.map(
+            Effect.either(
+              execHost(
+                `git rev-parse --verify "refs/heads/${branch}"`,
+                hostRepoDir,
+              ),
+            ),
+            (either) => either._tag === "Right",
+          )
+        : true; // hostBranch always exists
+
     // Create temp dir in sandbox for the bundle
     const sandboxTmpDir = (yield* execOk(
       sandbox,
@@ -105,14 +119,15 @@ export const syncIn = (
     );
     const repoExists = gitCheck.stdout.trim() === "yes";
 
-    // Determine if --branch specifies a new branch (not in the bundle)
-    const isNewBranch = branch !== hostBranch;
+    // Determine the ref to fetch and sync to
+    const fetchRef = branchExistsOnHost ? branch : hostBranch;
+    const isNewBranch = !branchExistsOnHost;
 
     if (repoExists) {
       // Fetch bundle into temp ref, reset to match host
       yield* execOk(
         sandbox,
-        `git fetch "${bundleSandboxPath}" "${hostBranch}:refs/sandcastle/sync" --force`,
+        `git fetch "${bundleSandboxPath}" "${fetchRef}:refs/sandcastle/sync" --force`,
         { cwd: sandboxRepoDir },
       );
       if (isNewBranch) {
@@ -141,10 +156,14 @@ export const syncIn = (
         sandbox,
         `git clone "${bundleSandboxPath}" "${sandboxRepoDir}"`,
       );
-      yield* execOk(sandbox, `git checkout "${hostBranch}"`, {
-        cwd: sandboxRepoDir,
-      });
-      if (isNewBranch) {
+      if (branchExistsOnHost) {
+        yield* execOk(sandbox, `git checkout "${branch}"`, {
+          cwd: sandboxRepoDir,
+        });
+      } else {
+        yield* execOk(sandbox, `git checkout "${hostBranch}"`, {
+          cwd: sandboxRepoDir,
+        });
         // Create new branch from host HEAD
         yield* execOk(sandbox, `git checkout -b "${branch}"`, {
           cwd: sandboxRepoDir,
@@ -198,20 +217,20 @@ export const syncIn = (
     yield* sandbox.exec(`rm -rf "${sandboxTmpDir}"`);
     yield* Effect.promise(() => rm(bundleDir, { recursive: true }));
 
-    // Verify sync succeeded
-    const hostHead = (yield* execHost(
-      "git rev-parse HEAD",
+    // Verify sync succeeded — compare against the ref we synced to
+    const expectedHead = (yield* execHost(
+      `git rev-parse "refs/heads/${fetchRef}"`,
       hostRepoDir,
     )).trim();
     const sandboxHead = (yield* execOk(sandbox, "git rev-parse HEAD", {
       cwd: sandboxRepoDir,
     })).stdout.trim();
 
-    if (hostHead !== sandboxHead) {
+    if (expectedHead !== sandboxHead) {
       yield* Effect.fail(
         new SandboxError(
           "syncIn",
-          `HEAD mismatch after sync: host=${hostHead} sandbox=${sandboxHead}`,
+          `HEAD mismatch after sync: host=${expectedHead} sandbox=${sandboxHead}`,
         ),
       );
     }
@@ -356,11 +375,30 @@ const syncOutViaWorktree = (
     yield* Effect.ensuring(
       // Try: create worktree and apply patches
       Effect.gen(function* () {
-        // Create worktree with a new branch from the current HEAD
-        yield* execHost(
-          `git worktree add "${worktreeDir}/wt" -b "${targetBranch}" HEAD`,
-          hostRepoDir,
+        // Check if target branch already exists on host
+        const branchExists = yield* Effect.map(
+          Effect.either(
+            execHost(
+              `git rev-parse --verify "refs/heads/${targetBranch}"`,
+              hostRepoDir,
+            ),
+          ),
+          (either) => either._tag === "Right",
         );
+
+        if (branchExists) {
+          // Check out existing branch into worktree
+          yield* execHost(
+            `git worktree add "${worktreeDir}/wt" "${targetBranch}"`,
+            hostRepoDir,
+          );
+        } else {
+          // Create worktree with a new branch from the current HEAD
+          yield* execHost(
+            `git worktree add "${worktreeDir}/wt" -b "${targetBranch}" HEAD`,
+            hostRepoDir,
+          );
+        }
 
         // Abort any leftover git am session
         yield* Effect.ignore(execHost("git am --abort", `${worktreeDir}/wt`));

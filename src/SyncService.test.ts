@@ -795,6 +795,58 @@ describe("--branch syncIn", () => {
     expect(await getHead(sandboxRepoDir)).toBe(await getHead(hostDir));
   });
 
+  it("checks out existing branch from bundle when branch exists on host", async () => {
+    const { hostDir, sandboxRepoDir, layer } = await setup();
+    await initRepo(hostDir);
+    await commitFile(hostDir, "base.txt", "base", "initial on main");
+
+    // Create the target branch on host with extra commits
+    await execAsync("git checkout -b feature/existing", { cwd: hostDir });
+    await commitFile(
+      hostDir,
+      "branch-work.txt",
+      "branch work",
+      "branch commit 1",
+    );
+    await commitFile(
+      hostDir,
+      "branch-work2.txt",
+      "more work",
+      "branch commit 2",
+    );
+    const branchTip = await getHead(hostDir);
+
+    // Switch host back to main
+    await execAsync("git checkout main", { cwd: hostDir });
+
+    // syncIn with --branch pointing to the existing branch
+    const result = await Effect.runPromise(
+      syncIn(hostDir, sandboxRepoDir, { branch: "feature/existing" }).pipe(
+        Effect.provide(layer),
+      ),
+    );
+
+    // Should return the --branch value
+    expect(result.branch).toBe("feature/existing");
+    // Sandbox should be on the existing branch
+    expect(await getBranch(sandboxRepoDir)).toBe("feature/existing");
+    // Sandbox HEAD should be the branch tip, NOT host's current HEAD (main)
+    expect(await getHead(sandboxRepoDir)).toBe(branchTip);
+    // Files from the branch should be present
+    expect(
+      await readFile(join(sandboxRepoDir, "branch-work.txt"), "utf-8"),
+    ).toBe("branch work");
+    expect(
+      await readFile(join(sandboxRepoDir, "branch-work2.txt"), "utf-8"),
+    ).toBe("more work");
+    // Commit history should include branch commits
+    const { stdout } = await execAsync("git log --oneline", {
+      cwd: sandboxRepoDir,
+    });
+    expect(stdout).toContain("branch commit 1");
+    expect(stdout).toContain("branch commit 2");
+  });
+
   it("omitting --branch preserves existing behavior", async () => {
     const { hostDir, sandboxRepoDir, layer } = await setup();
     await initRepo(hostDir);
@@ -1009,6 +1061,69 @@ describe("--branch round-trip", () => {
       cwd: hostDir,
     });
     expect(status.trim()).toBe("");
+  });
+});
+
+describe("--branch existing branch round-trip", () => {
+  it("sync-in existing branch → sandbox adds commits → sync-out → host branch has old + new commits", async () => {
+    const { hostDir, sandboxRepoDir, layer } = await setup();
+    await initRepo(hostDir);
+    await commitFile(hostDir, "base.txt", "base", "initial on main");
+
+    // Create existing branch on host with commits
+    await execAsync("git checkout -b feature/existing-rt", { cwd: hostDir });
+    await commitFile(
+      hostDir,
+      "existing.txt",
+      "existing",
+      "existing branch commit",
+    );
+    await execAsync("git checkout main", { cwd: hostDir });
+
+    // Sync-in with --branch (existing branch)
+    const result = await Effect.runPromise(
+      syncIn(hostDir, sandboxRepoDir, { branch: "feature/existing-rt" }).pipe(
+        Effect.provide(layer),
+      ),
+    );
+    expect(result.branch).toBe("feature/existing-rt");
+    const baseHead = await getHead(sandboxRepoDir);
+
+    // Agent makes new commits in sandbox
+    await initSandboxGit(sandboxRepoDir);
+    await commitFile(sandboxRepoDir, "new1.txt", "new1", "new commit 1");
+    await commitFile(sandboxRepoDir, "new2.txt", "new2", "new commit 2");
+
+    // Sync-out with --branch
+    await Effect.runPromise(
+      syncOut(hostDir, sandboxRepoDir, baseHead, {
+        branch: "feature/existing-rt",
+      }).pipe(Effect.provide(layer)),
+    );
+
+    // Host should still be on main
+    expect(await getBranch(hostDir)).toBe("main");
+
+    // Target branch should have both old and new commits
+    const { stdout: log } = await execAsync(
+      "git log --oneline feature/existing-rt",
+      { cwd: hostDir },
+    );
+    expect(log).toContain("existing branch commit");
+    expect(log).toContain("new commit 1");
+    expect(log).toContain("new commit 2");
+
+    // All files accessible on the branch
+    const { stdout: f1 } = await execAsync(
+      "git show feature/existing-rt:existing.txt",
+      { cwd: hostDir },
+    );
+    expect(f1.trim()).toBe("existing");
+    const { stdout: f2 } = await execAsync(
+      "git show feature/existing-rt:new1.txt",
+      { cwd: hostDir },
+    );
+    expect(f2.trim()).toBe("new1");
   });
 });
 
