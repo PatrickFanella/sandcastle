@@ -1,4 +1,4 @@
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Ref } from "effect";
 import { exec } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -7,18 +7,22 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
+import { Display, type DisplayEntry, SilentDisplay } from "./Display.js";
 import { FilesystemSandbox } from "./FilesystemSandbox.js";
 import {
   DEFAULT_MODEL,
   orchestrate,
   parseStreamJsonLine,
-  type OrchestrateOptions,
 } from "./Orchestrator.js";
 import { Sandbox } from "./Sandbox.js";
 import type { DockerError, SandboxError } from "./errors.js";
 import { SandboxFactory } from "./SandboxFactory.js";
 
 const execAsync = promisify(exec);
+
+const testDisplayLayer = SilentDisplay.layer(
+  Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([]),
+);
 
 const initRepo = async (dir: string) => {
   await execAsync("git init -b main", { cwd: dir });
@@ -184,7 +188,7 @@ describe("Orchestrator", () => {
         iterations: 1,
 
         prompt: "do some work",
-      }).pipe(Effect.provide(factoryLayer)),
+      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
     );
 
     expect(result.iterationsRun).toBe(1);
@@ -215,7 +219,7 @@ describe("Orchestrator", () => {
         iterations: 5,
 
         prompt: "do some work",
-      }).pipe(Effect.provide(factoryLayer)),
+      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
     );
 
     expect(result.iterationsRun).toBe(1);
@@ -259,7 +263,7 @@ describe("Orchestrator", () => {
         iterations: 5,
 
         prompt: "do some work",
-      }).pipe(Effect.provide(factoryLayer)),
+      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
     );
 
     expect(result.iterationsRun).toBe(3);
@@ -292,7 +296,7 @@ describe("Orchestrator", () => {
         iterations: 2,
 
         prompt: "do some work",
-      }).pipe(Effect.provide(factoryLayer)),
+      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
     );
 
     expect(result.iterationsRun).toBe(2);
@@ -334,7 +338,7 @@ describe("Orchestrator", () => {
         iterations: 3,
 
         prompt: "test isolation",
-      }).pipe(Effect.provide(factoryLayer)),
+      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
     );
 
     expect(result.iterationsRun).toBe(2);
@@ -515,7 +519,7 @@ describe("Orchestrator error handling", () => {
         iterations: 1,
 
         prompt: "do some work",
-      }).pipe(Effect.provide(factoryLayer)),
+      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
     );
 
     expect(exit._tag).toBe("Failure");
@@ -572,7 +576,7 @@ describe("Orchestrator error handling", () => {
         iterations: 5,
 
         prompt: "do some work",
-      }).pipe(Effect.provide(factoryLayer)),
+      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
     );
 
     // Should detect COMPLETE from the stdout fallback
@@ -651,7 +655,7 @@ describe("Orchestrator error handling", () => {
         iterations: 3,
 
         prompt: "do some work",
-      }).pipe(Effect.provide(factoryLayer)),
+      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
     );
 
     // Should have failed on iteration 2
@@ -674,7 +678,7 @@ describe("Orchestrator error handling", () => {
         iterations: 1,
 
         prompt: "do some work",
-      }).pipe(Effect.provide(factoryLayer)),
+      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
     );
 
     expect(exit._tag).toBe("Failure");
@@ -735,7 +739,7 @@ describe("Orchestrator error handling", () => {
         iterations: 1,
 
         prompt: "do some work",
-      }).pipe(Effect.provide(factoryLayer)),
+      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
     );
 
     expect(exit._tag).toBe("Failure");
@@ -794,7 +798,7 @@ describe("Orchestrator streaming", () => {
         iterations: 1,
 
         prompt: "do some work",
-      }).pipe(Effect.provide(factoryLayer)),
+      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
     );
 
     expect(capturedCommand).toContain("--output-format stream-json");
@@ -822,7 +826,7 @@ describe("Orchestrator streaming", () => {
         iterations: 5,
 
         prompt: "do some work",
-      }).pipe(Effect.provide(factoryLayer)),
+      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
     );
 
     expect(result.iterationsRun).toBe(1);
@@ -879,7 +883,7 @@ describe("Orchestrator streaming", () => {
         sandboxRepoDir,
         iterations: 1,
         prompt: "do some work",
-      }).pipe(Effect.provide(factoryLayer)),
+      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
     );
 
     expect(capturedCommand).toContain(`--model ${DEFAULT_MODEL}`);
@@ -936,7 +940,7 @@ describe("Orchestrator streaming", () => {
         iterations: 1,
         prompt: "do some work",
         model: "claude-sonnet-4-6",
-      }).pipe(Effect.provide(factoryLayer)),
+      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
     );
 
     expect(capturedCommand).toContain("--model claude-sonnet-4-6");
@@ -996,7 +1000,7 @@ describe("Orchestrator prompt preprocessing", () => {
         sandboxRepoDir,
         iterations: 1,
         prompt: "Context: !`echo hello-from-sandbox`\n\nDo the work.",
-      }).pipe(Effect.provide(factoryLayer)),
+      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
     );
 
     // The prompt should have !`echo hello-from-sandbox` replaced with "hello-from-sandbox"
@@ -1063,9 +1067,125 @@ describe("Orchestrator prompt preprocessing", () => {
         sandboxRepoDir: sr2,
         iterations: 1,
         prompt: "Just a plain prompt with no commands.",
-      }).pipe(Effect.provide(fl2)),
+      }).pipe(Effect.provide(Layer.merge(fl2, testDisplayLayer))),
     );
 
     expect(capturedPrompt).toContain("Just a plain prompt with no commands.");
+  });
+});
+
+describe("Orchestrator Display integration", () => {
+  it("emits iteration header, spinner, usage summary, and completion status", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "orch-display-"));
+
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello", "initial commit");
+
+    const ref = Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([]);
+    const displayLayer = SilentDisplay.layer(ref);
+
+    const { factoryLayer, sandboxRepoDir } = makeTestSandboxFactory((dir) =>
+      makeMockAgentLayer(dir, async () => {
+        return "All done. <promise>COMPLETE</promise>";
+      }),
+    );
+
+    // Override toStreamJson to include usage data
+    const mockLayer = makeTestSandboxFactory((dir) => {
+      const fsLayer = FilesystemSandbox.layer(dir);
+      return Layer.succeed(Sandbox, {
+        exec: (command, options) =>
+          Effect.flatMap(Sandbox, (real) => real.exec(command, options)).pipe(
+            Effect.provide(fsLayer),
+          ),
+        execStreaming: (command, onStdoutLine, options) => {
+          if (command.startsWith("claude ")) {
+            const output = "All done. <promise>COMPLETE</promise>";
+            const lines = [
+              JSON.stringify({
+                type: "assistant",
+                message: { content: [{ type: "text", text: output }] },
+              }),
+              JSON.stringify({
+                type: "result",
+                result: output,
+                total_cost_usd: 0.14,
+                num_turns: 3,
+                duration_ms: 12000,
+                usage: {
+                  input_tokens: 52340,
+                  output_tokens: 3201,
+                  cache_read_input_tokens: 10000,
+                  cache_creation_input_tokens: 5000,
+                },
+              }),
+            ];
+            for (const line of lines) {
+              onStdoutLine(line);
+            }
+            return Effect.succeed({
+              stdout: lines.join("\n"),
+              stderr: "",
+              exitCode: 0,
+            });
+          }
+          return Effect.flatMap(Sandbox, (real) =>
+            real.execStreaming(command, onStdoutLine, options),
+          ).pipe(Effect.provide(fsLayer));
+        },
+        copyIn: (hostPath, sandboxPath) =>
+          Effect.flatMap(Sandbox, (real) =>
+            real.copyIn(hostPath, sandboxPath),
+          ).pipe(Effect.provide(fsLayer)),
+        copyOut: (sandboxPath, hostPath) =>
+          Effect.flatMap(Sandbox, (real) =>
+            real.copyOut(sandboxPath, hostPath),
+          ).pipe(Effect.provide(fsLayer)),
+      });
+    });
+
+    await Effect.runPromise(
+      orchestrate({
+        hostRepoDir: hostDir,
+        sandboxRepoDir: mockLayer.sandboxRepoDir,
+        iterations: 5,
+        prompt: "do some work",
+      }).pipe(
+        Effect.provide(Layer.merge(mockLayer.factoryLayer, displayLayer)),
+      ),
+    );
+
+    const entries = await Effect.runPromise(Ref.get(ref));
+
+    // Iteration header
+    const statusEntries = entries.filter((e) => e._tag === "status");
+    expect(statusEntries.some((e) => e.message.includes("Iteration 1/5"))).toBe(
+      true,
+    );
+
+    // Spinner for agent invocation
+    const spinnerEntries = entries.filter((e) => e._tag === "spinner");
+    expect(
+      spinnerEntries.some((e) => e.message.includes("Running agent")),
+    ).toBe(true);
+
+    // Usage summary
+    const summaryEntries = entries.filter((e) => e._tag === "summary");
+    expect(summaryEntries.length).toBeGreaterThanOrEqual(1);
+    const usageSummary = summaryEntries[0] as {
+      _tag: "summary";
+      title: string;
+      rows: Record<string, string>;
+    };
+    expect(usageSummary.rows).toHaveProperty("Tokens");
+    expect(usageSummary.rows).toHaveProperty("Cost");
+
+    // Completion status
+    expect(
+      statusEntries.some(
+        (e) =>
+          e.message.includes("completion") || e.message.includes("complete"),
+      ),
+    ).toBe(true);
   });
 });

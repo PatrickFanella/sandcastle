@@ -1,6 +1,7 @@
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { getAgentProvider } from "./AgentProvider.js";
 import { readConfig } from "./Config.js";
+import { ClackDisplay } from "./Display.js";
 import { orchestrate } from "./Orchestrator.js";
 import { resolvePrompt } from "./PromptResolver.js";
 import { DockerSandboxFactory } from "./SandboxFactory.js";
@@ -74,6 +75,7 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
   provider.envCheck(env);
 
   const factoryLayer = DockerSandboxFactory.layer(_imageName, env);
+  const runLayer = Layer.merge(factoryLayer, ClackDisplay.layer);
 
   const result = await Effect.runPromise(
     orchestrate({
@@ -84,7 +86,7 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
       prompt: resolvedPrompt,
       branch,
       model: resolvedModel,
-    }).pipe(Effect.provide(factoryLayer)),
+    }).pipe(Effect.provide(runLayer)),
   );
 
   return { iterationsRun: result.iterationsRun, complete: result.complete };
