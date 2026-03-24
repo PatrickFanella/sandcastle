@@ -921,6 +921,67 @@ describe("--branch syncOut", () => {
     expect(status.trim()).toBe("");
   });
 
+  it("--branch matching host's current branch uses direct-apply, no worktree", async () => {
+    const { hostDir, sandboxRepoDir, layer } = await setup();
+    await initRepo(hostDir);
+    await commitFile(hostDir, "base.txt", "base", "initial commit");
+
+    // Host is on main, sync-in with --branch main
+    const result = await Effect.runPromise(
+      syncIn(hostDir, sandboxRepoDir, { branch: "main" }).pipe(
+        Effect.provide(layer),
+      ),
+    );
+    expect(result.branch).toBe("main");
+    const baseHead = await getHead(sandboxRepoDir);
+    await initSandboxGit(sandboxRepoDir);
+
+    // Agent makes commits on "main" branch in sandbox
+    await commitFile(
+      sandboxRepoDir,
+      "feature.txt",
+      "feature work",
+      "add feature",
+    );
+    await commitFile(
+      sandboxRepoDir,
+      "feature2.txt",
+      "more work",
+      "add feature2",
+    );
+
+    // syncOut with --branch main (same as host's current branch)
+    await Effect.runPromise(
+      syncOut(hostDir, sandboxRepoDir, baseHead, {
+        branch: "main",
+      }).pipe(Effect.provide(layer)),
+    );
+
+    // Commits should be applied directly to main (no worktree)
+    expect(await getBranch(hostDir)).toBe("main");
+    const { stdout: log } = await execAsync("git log --oneline main", {
+      cwd: hostDir,
+    });
+    expect(log).toContain("add feature");
+    expect(log).toContain("add feature2");
+
+    // Files should exist on host
+    const content = await readFile(join(hostDir, "feature.txt"), "utf-8");
+    expect(content).toBe("feature work");
+
+    // No worktrees should remain (only the main one)
+    const { stdout: worktrees } = await execAsync("git worktree list", {
+      cwd: hostDir,
+    });
+    expect(worktrees.trim().split("\n")).toHaveLength(1);
+
+    // Working tree should be clean
+    const { stdout: status } = await execAsync("git status --porcelain", {
+      cwd: hostDir,
+    });
+    expect(status.trim()).toBe("");
+  });
+
   it("worktree is cleaned up after successful sync-out", async () => {
     const { hostDir, sandboxRepoDir, layer } = await setup();
     await initRepo(hostDir);
