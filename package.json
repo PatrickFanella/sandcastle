@@ -21,7 +21,8 @@
     "check": "tsgo --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepare": "husky"
+    "prepare": "husky",
+    "run-sandcastle": "tsx .sandcastle/run.ts"
   },
   "keywords": [
     "cli",
@@ -38,6 +39,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^15.5.1",
     "prettier": "^3.5.3",
+    "tsx": "^4.21.0",
     "vitest": "^3.2.0"
   },
   "dependencies": {

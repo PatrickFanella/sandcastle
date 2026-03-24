@@ -1,8 +1,20 @@
 # ISSUES
 
-Issues JSON is provided at start of context. Parse it to get open issues with their bodies and comments.
+Here are the open issues in the repo:
 
-You've also been passed the last 10 RALPH commits (SHA, date, full message). Review these to understand what work has been done.
+<issues-json>
+
+!`gh issue list --state open --json number,title,body,comments`
+
+</issues-json>
+
+Here are the last 10 commits:
+
+<ralph-commits>
+
+!`git log --grep="RALPH" -n 10 --format="%H%n%ad%n%B---" --date=short 2>/dev/null || echo "No RALPH commits found"`
+
+</ralph-commits>
 
 # TASK SELECTION
 
