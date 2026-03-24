@@ -18,7 +18,7 @@ npm install -g sandcastle
 ## Quick start
 
 ```bash
-# 1. Initialize — scaffolds .sandcastle/ config directory, builds image, starts container
+# 1. Initialize — scaffolds .sandcastle/ config directory and builds the Docker image
 cd /path/to/your/repo
 sandcastle init
 
@@ -30,7 +30,7 @@ cp .sandcastle/.env.example .sandcastle/.env
 sandcastle run
 
 # 4. Clean up when you're done
-sandcastle cleanup-sandbox
+sandcastle remove-image
 ```
 
 ## Authentication
@@ -55,12 +55,11 @@ You must set either `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` (or both). 
 
 ### `sandcastle init`
 
-Scaffolds the `.sandcastle/` config directory, builds the Docker image, and starts a container. This is the first command you run in a new repo.
+Scaffolds the `.sandcastle/` config directory and builds the Docker image. This is the first command you run in a new repo.
 
-| Option         | Required | Default            | Description           |
-| -------------- | -------- | ------------------ | --------------------- |
-| `--container`  | No       | `claude-sandbox`   | Docker container name |
-| `--image-name` | No       | `sandcastle:local` | Docker image name     |
+| Option         | Required | Default            | Description       |
+| -------------- | -------- | ------------------ | ----------------- |
+| `--image-name` | No       | `sandcastle:local` | Docker image name |
 
 Creates the following files:
 
@@ -74,14 +73,13 @@ Creates the following files:
 
 Errors if `.sandcastle/` already exists to prevent overwriting customizations.
 
-### `sandcastle setup-sandbox`
+### `sandcastle build-image`
 
-Rebuilds the Docker image and restarts a container from an existing `.sandcastle/` directory. Use this after modifying the Dockerfile or when you need to recreate the container.
+Rebuilds the Docker image from an existing `.sandcastle/` directory. Use this after modifying the Dockerfile.
 
-| Option         | Required | Default            | Description           |
-| -------------- | -------- | ------------------ | --------------------- |
-| `--container`  | No       | `claude-sandbox`   | Docker container name |
-| `--image-name` | No       | `sandcastle:local` | Docker image name     |
+| Option         | Required | Default            | Description       |
+| -------------- | -------- | ------------------ | ----------------- |
+| `--image-name` | No       | `sandcastle:local` | Docker image name |
 
 ### `sandcastle run`
 
@@ -114,35 +112,13 @@ Opens an interactive Claude Code session inside the sandbox. Syncs your repo in,
 | `--image-name` | No       | `sandcastle:local` | Docker image name          |
 | `--model`      | No       | `claude-opus-4-6`  | Model to use for the agent |
 
-### `sandcastle cleanup-sandbox`
+### `sandcastle remove-image`
 
-Stops and removes the container and image.
+Removes the Docker image.
 
-| Option         | Required | Default            | Description           |
-| -------------- | -------- | ------------------ | --------------------- |
-| `--container`  | No       | `claude-sandbox`   | Docker container name |
-| `--image-name` | No       | `sandcastle:local` | Docker image name     |
-
-### `sandcastle sync-in`
-
-Transfers your host repo state into the sandbox. Useful for debugging sync issues.
-
-| Option          | Required | Default | Description                                 |
-| --------------- | -------- | ------- | ------------------------------------------- |
-| `--sandbox-dir` | Yes      | —       | Path to the sandbox directory               |
-| `--container`   | No       | —       | Docker container name (omit for filesystem) |
-
-Run from within your repo directory. Without `--container`, uses a local directory as the sandbox (filesystem layer).
-
-### `sandcastle sync-out`
-
-Extracts commits and uncommitted changes from the sandbox back to your host.
-
-| Option          | Required | Default | Description                                    |
-| --------------- | -------- | ------- | ---------------------------------------------- |
-| `--sandbox-dir` | Yes      | —       | Path to the sandbox directory                  |
-| `--base-head`   | Yes      | —       | HEAD SHA from sync-in (determines new commits) |
-| `--container`   | No       | —       | Docker container name (omit for filesystem)    |
+| Option         | Required | Default            | Description       |
+| -------------- | -------- | ------------------ | ----------------- |
+| `--image-name` | No       | `sandcastle:local` | Docker image name |
 
 ## Prompts
 

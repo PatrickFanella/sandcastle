@@ -41,9 +41,9 @@
 | Term                 | Definition                                                                                                                 | Aliases to avoid                       |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
 | **Config directory** | The `.sandcastle/` directory in a host repo containing sandbox configuration: Dockerfile, prompt, config, and env settings | ".sandcastle folder", "sandcastle dir" |
-| **Init**             | The CLI command that scaffolds the **config directory** in a host repo and builds+starts the container                     | "create", "bootstrap", "new"           |
-| **Setup-sandbox**    | The CLI command that builds the Docker image and starts a container from an existing **config directory**                  | "setup" (old name)                     |
-| **Cleanup-sandbox**  | The CLI command that stops and removes the container and image                                                             | "cleanup" (old name)                   |
+| **Init**             | The CLI command that scaffolds the **config directory** in a host repo and builds the Docker image                         | "create", "bootstrap", "new"           |
+| **Build-image**      | The CLI command that rebuilds the Docker image from an existing **config directory**                                       | "setup-sandbox" (old name)             |
+| **Remove-image**     | The CLI command that removes the Docker image                                                                              | "cleanup-sandbox" (old name)           |
 
 ## Architecture
 
@@ -62,8 +62,8 @@
 - **Sync-in** creates a **bundle** on the **host** and unpacks it in the **sandbox**
 - **Sync-out** generates **patches** in the **sandbox** and applies them on the **host**
 - Each **iteration** may produce one **patch**; iterations repeat until the **completion signal** fires or the max count is reached
-- **Init** creates the **config directory** on the **host** and then performs **setup-sandbox**
-- **Setup-sandbox** requires the **config directory** to already exist on the **host**
+- **Init** creates the **config directory** on the **host** and builds the Docker image
+- **Build-image** requires the **config directory** to already exist on the **host**
 - The **env resolver** loads env vars from: repo root `.env` > **config directory** `.env` > `process.env` — only keys declared in a `.env` file are resolved from `process.env` (updated)
 - Each **agent provider** declares an **env manifest** and an **env check**
 - The **agent provider** is selected via the `agent` field in config or `--agent` CLI flag
