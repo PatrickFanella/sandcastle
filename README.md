@@ -96,13 +96,14 @@ Runs the orchestration loop: sync-in, invoke agent, sync-out, repeat.
 | `--branch`      | No       | —                       | Target branch name for sandbox work                          |
 | `--model`       | No       | `claude-opus-4-6`       | Model to use for the agent                                   |
 
-The agent runs inside the container, working on open GitHub issues. Each iteration:
+Each iteration:
 
 1. Syncs your host repo into the container (via git bundle)
-2. Fetches open issues and prior agent commits for context
-3. Invokes the agent (Claude Code) with streaming output
-4. If the agent made commits, syncs them back to your host (via format-patch)
-5. Stops early if the agent emits a completion signal
+2. Runs lifecycle hooks (`onSandboxReady`)
+3. Preprocesses the prompt (executes any `` !`command` `` expressions inside the sandbox)
+4. Invokes the agent (Claude Code) with streaming output
+5. If the agent made commits, syncs them back to your host (via format-patch)
+6. Stops early if the agent emits `<promise>COMPLETE</promise>`
 
 ### `sandcastle interactive`
 
@@ -142,6 +143,114 @@ Extracts commits and uncommitted changes from the sandbox back to your host.
 | `--sandbox-dir` | Yes      | —       | Path to the sandbox directory                  |
 | `--base-head`   | Yes      | —       | HEAD SHA from sync-in (determines new commits) |
 | `--container`   | No       | —       | Docker container name (omit for filesystem)    |
+
+## Prompts
+
+Sandcastle uses a flexible prompt system. You write the prompt, and the engine executes it — no opinions about workflow, task management, or context sources are imposed.
+
+### Prompt resolution
+
+The prompt is resolved from one of three sources (in order of precedence):
+
+1. `--prompt "inline string"` — pass an inline prompt directly
+2. `--prompt-file ./path/to/prompt.md` — point to a specific file
+3. `.sandcastle/prompt.md` — default location (created by `sandcastle init`)
+
+`--prompt` and `--prompt-file` are mutually exclusive — providing both is an error.
+
+### Dynamic context with `` !`command` ``
+
+Use `` !`command` `` expressions in your prompt to pull in dynamic context. Each expression is replaced with the command's stdout before the prompt is sent to the agent.
+
+Commands run **inside the sandbox** after sync-in and `onSandboxReady` hooks, so they see the same repo state the agent sees (including installed dependencies).
+
+```markdown
+# Open issues
+
+!`gh issue list --state open --json number,title,body,comments,labels --limit 20`
+
+# Recent commits
+
+!`git log --oneline -10`
+```
+
+If any command exits with a non-zero code, the run fails immediately with an error — broken context is surfaced early rather than silently producing a bad prompt.
+
+### Early termination with `<promise>COMPLETE</promise>`
+
+When the agent outputs `<promise>COMPLETE</promise>`, the orchestrator stops the iteration loop early. This is a convention you document in your prompt for the agent to follow — the engine never injects it.
+
+This is useful for task-based workflows where the agent should stop once it has finished, rather than running all remaining iterations.
+
+### Example prompt: GitHub Issue Backlog
+
+This is a complete, copy-pasteable prompt for an agent that works through a repo's open GitHub issues:
+
+```markdown
+# Issues
+
+!`gh issue list --state open --json number,title,body,comments,labels --limit 20`
+
+# Recent work
+
+!`git log --oneline -10`
+
+# Task
+
+Pick the highest-priority open issue and work on it. Follow this process:
+
+1. Explore the codebase to understand the relevant code
+2. Write a failing test for the expected behavior
+3. Implement the fix or feature to make the test pass
+4. Refactor if needed
+5. Commit your changes with a descriptive message
+
+When the task is complete, close the GitHub issue with `gh issue close <number>`
+and output <promise>COMPLETE</promise> to signal you are done.
+
+If the task is not complete, leave a comment on the issue describing progress.
+
+Only work on a single issue per run.
+```
+
+Save this as `.sandcastle/prompt.md` and run `sandcastle run`.
+
+## Node API
+
+Sandcastle exports a programmatic `run()` function for use in Node.js scripts, CI pipelines, or custom tooling.
+
+```typescript
+import { run } from "sandcastle";
+
+const result = await run({
+  promptFile: "./my-prompt.md",
+  maxIterations: 3,
+  branch: "agent/fix-123",
+});
+
+console.log(result.iterationsRun); // number of iterations executed
+console.log(result.complete); // true if agent emitted <promise>COMPLETE</promise>
+```
+
+### `RunOptions`
+
+| Option          | Type   | Default                 | Description                                            |
+| --------------- | ------ | ----------------------- | ------------------------------------------------------ |
+| `prompt`        | string | —                       | Inline prompt (mutually exclusive with `promptFile`)   |
+| `promptFile`    | string | `.sandcastle/prompt.md` | Path to prompt file (mutually exclusive with `prompt`) |
+| `maxIterations` | number | `5`                     | Maximum iterations to run                              |
+| `hooks`         | object | —                       | Lifecycle hooks (`onSandboxCreate`, `onSandboxReady`)  |
+| `branch`        | string | —                       | Target branch for sandbox work                         |
+| `model`         | string | `claude-opus-4-6`       | Model to use for the agent                             |
+
+### `RunResult`
+
+| Field           | Type    | Description                             |
+| --------------- | ------- | --------------------------------------- |
+| `iterationsRun` | number  | Number of iterations that were executed |
+| `complete`      | boolean | Whether the agent signaled completion   |
+
+Tokens (`CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY`, `GH_TOKEN`) are resolved automatically from `.env`, `.sandcastle/.env`, and `process.env` — no need to pass them to the API.
 
 ## Configuration
 
