@@ -1,5 +1,6 @@
-import { Console, Effect } from "effect";
+import { Effect } from "effect";
 import type { SandcastleConfig } from "./Config.js";
+import { Display } from "./Display.js";
 import { preprocessPrompt } from "./PromptPreprocessor.js";
 import { AgentError } from "./errors.js";
 import type { SandboxError } from "./errors.js";
@@ -116,21 +117,23 @@ const shellEscape = (s: string): string => "'" + s.replace(/'/g, "'\\''") + "'";
 
 const formatNumber = (n: number): string => n.toLocaleString("en-US");
 
-export const formatUsageLine = (usage: TokenUsage, model: string): string => {
-  const parts: string[] = [
-    `Tokens: ${formatNumber(usage.input_tokens)} in / ${formatNumber(usage.output_tokens)} out`,
-  ];
+const formatUsageRows = (
+  usage: TokenUsage,
+  model: string,
+): Record<string, string> => {
+  const rows: Record<string, string> = {
+    Tokens: `${formatNumber(usage.input_tokens)} in / ${formatNumber(usage.output_tokens)} out`,
+  };
 
   const contextWindow = MODEL_CONTEXT_WINDOWS[model];
   if (contextWindow) {
-    const pct = ((usage.input_tokens / contextWindow) * 100).toFixed(1);
-    parts.push(`Context: ${pct}%`);
+    rows.Context = `${((usage.input_tokens / contextWindow) * 100).toFixed(1)}%`;
   }
 
-  parts.push(`Cost: $${usage.total_cost_usd.toFixed(2)}`);
-  parts.push(`Turns: ${usage.num_turns}`);
+  rows.Cost = `$${usage.total_cost_usd.toFixed(2)}`;
+  rows.Turns = `${usage.num_turns}`;
 
-  return parts.join(" | ");
+  return rows;
 };
 
 const COMPLETION_SIGNAL = "<promise>COMPLETE</promise>";
@@ -152,15 +155,16 @@ export interface OrchestrateResult {
 
 export const orchestrate = (
   options: OrchestrateOptions,
-): Effect.Effect<OrchestrateResult, SandboxError, SandboxFactory> =>
+): Effect.Effect<OrchestrateResult, SandboxError, SandboxFactory | Display> =>
   Effect.gen(function* () {
     const factory = yield* SandboxFactory;
+    const display = yield* Display;
     const { hostRepoDir, sandboxRepoDir, iterations, config, prompt, branch } =
       options;
     const resolvedModel = options.model ?? DEFAULT_MODEL;
 
     for (let i = 1; i <= iterations; i++) {
-      yield* Console.log(`\n=== Iteration ${i}/${iterations} ===\n`);
+      yield* display.status(`Iteration ${i}/${iterations}`, "info");
 
       const iterationResult = yield* factory.withSandbox(
         withSandboxLifecycle(
@@ -175,17 +179,22 @@ export const orchestrate = (
               );
 
               // Invoke the agent
-              yield* Console.log("Running agent...");
-              const { result: agentOutput, usage } = yield* invokeAgent(
-                ctx.sandbox,
-                ctx.sandboxRepoDir,
-                fullPrompt,
-                resolvedModel,
+              const { result: agentOutput, usage } = yield* display.spinner(
+                "Running agent...",
+                invokeAgent(
+                  ctx.sandbox,
+                  ctx.sandboxRepoDir,
+                  fullPrompt,
+                  resolvedModel,
+                ),
               );
 
               // Log usage summary
               if (usage) {
-                yield* Console.log(formatUsageLine(usage, resolvedModel));
+                yield* display.summary(
+                  "Token Usage",
+                  formatUsageRows(usage, resolvedModel),
+                );
               }
 
               // Check completion signal
@@ -198,13 +207,14 @@ export const orchestrate = (
       );
 
       if (iterationResult.complete) {
-        yield* Console.log(
-          `\nAgent signaled completion after ${i} iteration(s).`,
+        yield* display.status(
+          `Agent signaled completion after ${i} iteration(s).`,
+          "success",
         );
         return { iterationsRun: i, complete: true };
       }
     }
 
-    yield* Console.log(`\nCompleted ${iterations} iteration(s).`);
+    yield* display.status(`Completed ${iterations} iteration(s).`, "info");
     return { iterationsRun: iterations, complete: false };
   });
