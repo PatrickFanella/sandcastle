@@ -64,7 +64,7 @@
 - Each **iteration** may produce one **patch**; iterations repeat until the **completion signal** fires or the max count is reached
 - **Init** creates the **config directory** on the **host** and builds the Docker image
 - **Build-image** requires the **config directory** to already exist on the **host**
-- The **env resolver** loads env vars from: repo root `.env` > **config directory** `.env` > `process.env` — only keys declared in a `.env` file are resolved from `process.env` (updated)
+- The **env resolver** loads env vars from: repo root `.env` > **config directory** `.env` > `process.env` — only keys declared in a `.env` file are resolved from `process.env`
 - Each **agent provider** declares an **env manifest** and an **env check**
 - The **agent provider** is selected via the `agent` field in config or `--agent` CLI flag
 - At launch, Sandcastle resolves env vars via the **env resolver**, runs the active **agent provider**'s **env check**, then passes the full env map into the **sandbox**
@@ -108,6 +108,6 @@
 - **"Container"** vs **"Sandbox"** — "Container" is the Docker primitive; **sandbox** is our abstraction over it. Use **sandbox** when talking about the concept, "container" only when discussing Docker implementation details.
 - **"Local"** vs **"Host"** — Both could mean the developer's machine, but "local" is ambiguous (the filesystem layer's sandbox is also local). Use **host** to mean the developer's machine. Reserve "local" for generic contexts.
 - **"Run"** — Ambiguous between the CLI command (`sandcastle run`) and a single **iteration**. Use **iteration** for one agent invocation; use "run command" or "run session" for the CLI command that drives multiple iterations.
-- **"Adapter"** vs **"Layer"** — We use **layer** (Effect terminology) for implementations of the **Sandbox service**. Avoid "adapter" and "transport" as they suggest different patterns. The new **agent provider** concept is NOT an adapter — it provides configuration and validation, not an alternative implementation of a service interface. (updated)
+- **"Adapter"** vs **"Layer"** — We use **layer** (Effect terminology) for implementations of the **Sandbox service**. Avoid "adapter" and "transport" as they suggest different patterns. The new **agent provider** concept is NOT an adapter — it provides configuration and validation, not an alternative implementation of a service interface.
 - **"Token"** vs **"Env var"** — The old `TokenResolver` name implied it only handled auth tokens. The **env resolver** handles all environment variables generically. Use "env var" for the general concept; "token" only when referring specifically to an auth credential value.
 - **"Command"** — Heavily overloaded: hook commands, shell commands, CLI commands, **shell expressions**. Use **shell expression** for the `` !`...` `` syntax in **prompts**; use "hook" for lifecycle hooks; use "CLI command" for `sandcastle run`, `sandcastle init`, etc.
