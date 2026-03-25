@@ -2,6 +2,8 @@
 
 Fix issue #{{ISSUE_NUMBER}}: {{ISSUE_TITLE}}
 
+Pull in the issue using `gh issue view`. If it has a parent PRD, pull that in too.
+
 Work on branch {{BRANCH}}. Make commits, run tests, and close the issue when done.
 
 # CONTEXT
