@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { Display } from "./Display.js";
 import { PromptError } from "./errors.js";
 import type { ExecError } from "./errors.js";
 import type { SandboxService } from "./Sandbox.js";
@@ -7,7 +8,7 @@ export const preprocessPrompt = (
   prompt: string,
   sandbox: SandboxService,
   cwd: string,
-): Effect.Effect<string, ExecError | PromptError> => {
+): Effect.Effect<string, ExecError | PromptError, Display> => {
   const pattern = /!`([^`]+)`/g;
   const matches = [...prompt.matchAll(pattern)];
 
@@ -16,12 +17,16 @@ export const preprocessPrompt = (
   }
 
   return Effect.gen(function* () {
+    const display = yield* Display;
     let result = prompt;
     // Process matches in reverse order to preserve indices
     for (const match of [...matches].reverse()) {
       const command = match[1]!;
       const index = match.index!;
-      const execResult = yield* sandbox.exec(command, { cwd });
+      const execResult = yield* display.spinner(
+        `Expanding !\`${command}\``,
+        sandbox.exec(command, { cwd }),
+      );
       if (execResult.exitCode !== 0) {
         return yield* Effect.fail(
           new PromptError({

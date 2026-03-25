@@ -3,7 +3,7 @@ import type { SandcastleConfig } from "./Config.js";
 import { Display } from "./Display.js";
 import type { SandboxError } from "./errors.js";
 import { Sandbox, type SandboxService } from "./Sandbox.js";
-import { execOk, runHooks, syncIn, syncOut } from "./SyncService.js";
+import { execOk, syncIn, syncOut } from "./SyncService.js";
 
 export interface SandboxLifecycleOptions {
   readonly hostRepoDir: string;
@@ -20,26 +20,37 @@ export interface SandboxContext {
 
 export const withSandboxLifecycle = <A>(
   options: SandboxLifecycleOptions,
-  work: (ctx: SandboxContext) => Effect.Effect<A, SandboxError, Sandbox>,
+  work: (
+    ctx: SandboxContext,
+  ) => Effect.Effect<A, SandboxError, Sandbox | Display>,
 ): Effect.Effect<A, SandboxError, Sandbox | Display> =>
   Effect.gen(function* () {
     const sandbox = yield* Sandbox;
     const display = yield* Display;
     const { hostRepoDir, sandboxRepoDir, hooks, branch } = options;
 
-    // Setup: hooks + sync-in
+    // onSandboxCreate hooks
+    if (hooks?.onSandboxCreate?.length) {
+      for (const hook of hooks.onSandboxCreate) {
+        yield* display.spinner(hook.command, execOk(sandbox, hook.command));
+      }
+    }
+
+    // Sync-in
     yield* display.spinner(
       "Setting up sandbox...",
-      Effect.gen(function* () {
-        yield* runHooks(hooks?.onSandboxCreate);
-        yield* syncIn(
-          hostRepoDir,
-          sandboxRepoDir,
-          branch ? { branch } : undefined,
-        );
-        yield* runHooks(hooks?.onSandboxReady, { cwd: sandboxRepoDir });
-      }),
+      syncIn(hostRepoDir, sandboxRepoDir, branch ? { branch } : undefined),
     );
+
+    // onSandboxReady hooks
+    if (hooks?.onSandboxReady?.length) {
+      for (const hook of hooks.onSandboxReady) {
+        yield* display.spinner(
+          hook.command,
+          execOk(sandbox, hook.command, { cwd: sandboxRepoDir }),
+        );
+      }
+    }
 
     // Record base HEAD
     const baseHead = (yield* execOk(sandbox, "git rev-parse HEAD", {

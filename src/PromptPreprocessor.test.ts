@@ -1,8 +1,9 @@
-import { Effect } from "effect";
+import { Effect, Layer, Ref } from "effect";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { type DisplayEntry, SilentDisplay } from "./Display.js";
 import { FilesystemSandbox } from "./FilesystemSandbox.js";
 import { preprocessPrompt } from "./PromptPreprocessor.js";
 import { Sandbox } from "./Sandbox.js";
@@ -11,13 +12,17 @@ import { PromptError } from "./errors.js";
 describe("PromptPreprocessor", () => {
   const setup = async () => {
     const sandboxDir = await mkdtemp(join(tmpdir(), "preprocess-test-"));
-    const layer = FilesystemSandbox.layer(sandboxDir);
+    const displayRef = Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([]);
+    const layer = Layer.merge(
+      FilesystemSandbox.layer(sandboxDir),
+      SilentDisplay.layer(displayRef),
+    );
     return { sandboxDir, layer };
   };
 
   const run = (
     prompt: string,
-    layer: ReturnType<typeof FilesystemSandbox.layer>,
+    layer: Awaited<ReturnType<typeof setup>>["layer"],
     cwd: string,
   ) =>
     Effect.runPromise(
@@ -48,14 +53,14 @@ describe("PromptPreprocessor", () => {
     expect(result).toBe("First: hello\nSecond: world");
   });
 
-  it("fails with SandboxError on non-zero exit code", async () => {
+  it("fails with PromptError on non-zero exit code", async () => {
     const { sandboxDir, layer } = await setup();
     const prompt = "Output: !`exit 1`";
     const result = await Effect.runPromise(
       Sandbox.pipe(
         Effect.flatMap((s) => preprocessPrompt(prompt, s, sandboxDir)),
-        Effect.provide(layer),
         Effect.flip,
+        Effect.provide(layer),
       ),
     );
     expect(result).toBeInstanceOf(PromptError);
