@@ -17,7 +17,7 @@ describe("PromptPreprocessor", () => {
       FilesystemSandbox.layer(sandboxDir),
       SilentDisplay.layer(displayRef),
     );
-    return { sandboxDir, layer };
+    return { sandboxDir, layer, displayRef };
   };
 
   const run = (
@@ -74,5 +74,13 @@ describe("PromptPreprocessor", () => {
     const prompt = "Dir: !`pwd`";
     const result = await run(prompt, layer, sandboxDir);
     expect(result).toBe(`Dir: ${sandboxDir}`);
+  });
+
+  it("does not show taskLog when prompt has no commands", async () => {
+    const { sandboxDir, layer, displayRef } = await setup();
+    const prompt = "Just a plain prompt with no commands.";
+    await run(prompt, layer, sandboxDir);
+    const entries = await Effect.runPromise(Ref.get(displayRef));
+    expect(entries.filter((e) => e._tag === "taskLog")).toHaveLength(0);
   });
 });

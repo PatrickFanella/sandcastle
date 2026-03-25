@@ -17,6 +17,11 @@ export type DisplayEntry =
       readonly title: string;
       readonly rows: Record<string, string>;
     }
+  | {
+      readonly _tag: "taskLog";
+      readonly title: string;
+      readonly messages: ReadonlyArray<string>;
+    }
   | { readonly _tag: "text"; readonly message: string };
 
 export interface DisplayService {
@@ -33,6 +38,11 @@ export interface DisplayService {
     title: string,
     rows: Record<string, string>,
   ) => Effect.Effect<void>;
+
+  readonly taskLog: <A, E, R>(
+    title: string,
+    effect: (message: (msg: string) => void) => Effect.Effect<A, E, R>,
+  ) => Effect.Effect<A, E, R>;
 
   readonly text: (message: string) => Effect.Effect<void>;
 }
@@ -71,6 +81,25 @@ export const SilentDisplay = {
           ...entries,
           { _tag: "summary" as const, title, rows },
         ]),
+
+      taskLog: (title, effect) => {
+        const messages: string[] = [];
+        return Effect.flatMap(
+          effect((msg) => messages.push(msg)),
+          (result) =>
+            Effect.map(
+              Ref.update(ref, (entries) => [
+                ...entries,
+                {
+                  _tag: "taskLog" as const,
+                  title,
+                  messages: [...messages],
+                },
+              ]),
+              () => result,
+            ),
+        );
+      },
 
       text: (message) =>
         Ref.update(ref, (entries) => [
@@ -120,6 +149,20 @@ export const ClackDisplay = {
           .join("\n");
         clack.note(lines, title);
       }),
+
+    taskLog: (title, effect) =>
+      Effect.acquireUseRelease(
+        Effect.sync(() => clack.taskLog({ title })),
+        (log) => effect((msg) => log.message(msg)),
+        (log, exit) =>
+          Effect.sync(() => {
+            if (exit._tag === "Success") {
+              log.success(title, { showLog: true });
+            } else {
+              log.error(title, { showLog: true });
+            }
+          }),
+      ),
 
     text: (message) => Effect.sync(() => clack.log.message(message)),
   }),

@@ -18,27 +18,29 @@ export const preprocessPrompt = (
 
   return Effect.gen(function* () {
     const display = yield* Display;
-    let result = prompt;
-    // Process matches in reverse order to preserve indices
-    for (const match of [...matches].reverse()) {
-      const command = match[1]!;
-      const index = match.index!;
-      const execResult = yield* display.spinner(
-        `Expanding !\`${command}\``,
-        sandbox.exec(command, { cwd }),
-      );
-      if (execResult.exitCode !== 0) {
-        return yield* Effect.fail(
-          new PromptError({
-            message: `Command \`${command}\` exited with code ${execResult.exitCode}: ${execResult.stderr}`,
-          }),
-        );
-      }
-      result =
-        result.slice(0, index) +
-        execResult.stdout.trimEnd() +
-        result.slice(index + match[0].length);
-    }
-    return result;
+    return yield* display.taskLog("Expanding commands in prompt", (message) =>
+      Effect.gen(function* () {
+        let result = prompt;
+        // Process matches in reverse order to preserve indices
+        for (const match of [...matches].reverse()) {
+          const command = match[1]!;
+          const index = match.index!;
+          message(command);
+          const execResult = yield* sandbox.exec(command, { cwd });
+          if (execResult.exitCode !== 0) {
+            return yield* Effect.fail(
+              new PromptError({
+                message: `Command \`${command}\` exited with code ${execResult.exitCode}: ${execResult.stderr}`,
+              }),
+            );
+          }
+          result =
+            result.slice(0, index) +
+            execResult.stdout.trimEnd() +
+            result.slice(index + match[0].length);
+        }
+        return result;
+      }),
+    );
   });
 };

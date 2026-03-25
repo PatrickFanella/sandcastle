@@ -29,28 +29,31 @@ export const withSandboxLifecycle = <A>(
     const display = yield* Display;
     const { hostRepoDir, sandboxRepoDir, hooks, branch } = options;
 
-    // onSandboxCreate hooks
-    if (hooks?.onSandboxCreate?.length) {
-      for (const hook of hooks.onSandboxCreate) {
-        yield* display.spinner(hook.command, execOk(sandbox, hook.command));
-      }
-    }
+    // Setup: onSandboxCreate hooks, sync-in, onSandboxReady hooks
+    yield* display.taskLog("Setting up sandbox", (message) =>
+      Effect.gen(function* () {
+        if (hooks?.onSandboxCreate?.length) {
+          for (const hook of hooks.onSandboxCreate) {
+            message(hook.command);
+            yield* execOk(sandbox, hook.command);
+          }
+        }
 
-    // Sync-in
-    yield* display.spinner(
-      "Setting up sandbox...",
-      syncIn(hostRepoDir, sandboxRepoDir, branch ? { branch } : undefined),
-    );
-
-    // onSandboxReady hooks
-    if (hooks?.onSandboxReady?.length) {
-      for (const hook of hooks.onSandboxReady) {
-        yield* display.spinner(
-          hook.command,
-          execOk(sandbox, hook.command, { cwd: sandboxRepoDir }),
+        message("Syncing repo into sandbox");
+        yield* syncIn(
+          hostRepoDir,
+          sandboxRepoDir,
+          branch ? { branch } : undefined,
         );
-      }
-    }
+
+        if (hooks?.onSandboxReady?.length) {
+          for (const hook of hooks.onSandboxReady) {
+            message(hook.command);
+            yield* execOk(sandbox, hook.command, { cwd: sandboxRepoDir });
+          }
+        }
+      }),
+    );
 
     // Record base HEAD
     const baseHead = (yield* execOk(sandbox, "git rev-parse HEAD", {

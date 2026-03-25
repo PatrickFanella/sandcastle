@@ -1163,11 +1163,14 @@ describe("Orchestrator Display integration", () => {
       true,
     );
 
-    // Spinners for sandbox setup and sync
-    const spinnerEntries = entries.filter((e) => e._tag === "spinner");
+    // Task log for sandbox setup
+    const taskLogEntries = entries.filter((e) => e._tag === "taskLog");
     expect(
-      spinnerEntries.some((e) => e.message.includes("Setting up sandbox")),
+      taskLogEntries.some((e) => e.title.includes("Setting up sandbox")),
     ).toBe(true);
+
+    // Spinner for sync-out
+    const spinnerEntries = entries.filter((e) => e._tag === "spinner");
     expect(
       spinnerEntries.some((e) => e.message.includes("Syncing results")),
     ).toBe(true);
