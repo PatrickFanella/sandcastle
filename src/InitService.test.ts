@@ -314,6 +314,33 @@ describe("InitService scaffold", () => {
       expect(joined).toContain("onSandboxReady");
     });
 
+    it("blank template includes a step to customize prompt.md", () => {
+      const lines = getNextStepsLines("blank");
+      const joined = lines.join("\n");
+      expect(joined).toContain("prompt.md");
+    });
+
+    it("simple-loop template includes a step to read/customize prompt files", () => {
+      const lines = getNextStepsLines("simple-loop");
+      const joined = lines.join("\n");
+      expect(joined).toContain("prompt");
+      expect(joined).toMatch(/customiz|review|read/i);
+    });
+
+    it("sequential-reviewer template includes a step mentioning prompt files", () => {
+      const lines = getNextStepsLines("sequential-reviewer");
+      const joined = lines.join("\n");
+      expect(joined).toContain("prompt");
+      expect(joined).toMatch(/customiz|review|read/i);
+    });
+
+    it("parallel-planner template includes a step mentioning prompt files", () => {
+      const lines = getNextStepsLines("parallel-planner");
+      const joined = lines.join("\n");
+      expect(joined).toContain("prompt");
+      expect(joined).toMatch(/customiz|review|read/i);
+    });
+
     it("returns at least 2 numbered steps for blank template", () => {
       const lines = getNextStepsLines("blank");
       const numberedSteps = lines.filter((l) => /^\d+\./.test(l));

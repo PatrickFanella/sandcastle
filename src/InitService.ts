@@ -43,7 +43,8 @@ export function getNextStepsLines(template: string): string[] {
     return [
       "Next steps:",
       "1. Fill in .sandcastle/.env with your agent credentials",
-      "2. Run `npx sandcastle run` to start the agent",
+      "2. Read and customize .sandcastle/prompt.md to describe what you want the agent to do",
+      "3. Run `npx sandcastle run` to start the agent",
     ];
   } else {
     return [
@@ -51,7 +52,8 @@ export function getNextStepsLines(template: string): string[] {
       "1. Fill in .sandcastle/.env with your agent credentials",
       `2. Add "sandcastle": "npx tsx .sandcastle/main.ts" to your package.json scripts`,
       "3. Customize the `npm install` command in the onSandboxReady hook if your project uses a different package manager",
-      "4. Run `npm run sandcastle` to start the agent",
+      "4. Read and customize the prompt files in .sandcastle/ — they shape what the agent does",
+      "5. Run `npm run sandcastle` to start the agent",
     ];
   }
 }
