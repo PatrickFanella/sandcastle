@@ -95,6 +95,7 @@ describe("InitService scaffold", () => {
       "utf-8",
     );
     expect(gitignore).toContain("patches/");
+    expect(gitignore).toContain("logs/");
   });
 
   it("skeleton prompt contains section headers and hints", async () => {

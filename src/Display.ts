@@ -1,4 +1,5 @@
 import * as clack from "@clack/prompts";
+import { appendFileSync, writeFileSync } from "node:fs";
 import { Context, Effect, Layer, Ref } from "effect";
 import { styleText } from "node:util";
 
@@ -107,6 +108,73 @@ export const SilentDisplay = {
           { _tag: "text" as const, message },
         ]),
     }),
+};
+
+const formatTimestamp = (): string => new Date().toISOString();
+
+const appendToLog = (filePath: string, line: string): void => {
+  appendFileSync(filePath, line + "\n");
+};
+
+export const FileDisplay = {
+  layer: (filePath: string): Layer.Layer<Display> => {
+    writeFileSync(filePath, "");
+    return Layer.succeed(Display, {
+      intro: (title) =>
+        Effect.sync(() => {
+          appendToLog(filePath, `[${formatTimestamp()}] === ${title} ===`);
+          console.log(`Agent started. Logs: ${filePath}`);
+        }),
+
+      status: (message, severity) =>
+        Effect.sync(() => {
+          appendToLog(
+            filePath,
+            `[${formatTimestamp()}] [${severity.toUpperCase()}] ${message}`,
+          );
+        }),
+
+      spinner: (message, effect) =>
+        Effect.gen(function* () {
+          appendToLog(
+            filePath,
+            `[${formatTimestamp()}] [SPINNER] ${message}...`,
+          );
+          const result = yield* effect;
+          appendToLog(
+            filePath,
+            `[${formatTimestamp()}] [SPINNER] ${message} done`,
+          );
+          return result;
+        }),
+
+      summary: (title, rows) =>
+        Effect.sync(() => {
+          const lines = Object.entries(rows)
+            .map(([key, value]) => `  ${key}: ${value}`)
+            .join("\n");
+          appendToLog(
+            filePath,
+            `[${formatTimestamp()}] [SUMMARY] ${title}\n${lines}`,
+          );
+        }),
+
+      taskLog: (title, effect) =>
+        Effect.gen(function* () {
+          appendToLog(filePath, `[${formatTimestamp()}] [TASK] ${title}`);
+          const result = yield* effect((msg) => {
+            appendToLog(filePath, `  ${msg}`);
+          });
+          appendToLog(filePath, `[${formatTimestamp()}] [TASK] ${title} done`);
+          return result;
+        }),
+
+      text: (message) =>
+        Effect.sync(() => {
+          appendToLog(filePath, message);
+        }),
+    });
+  },
 };
 
 const severityToClack: Record<Severity, (message: string) => void> = {

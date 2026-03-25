@@ -1,6 +1,15 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { mkdtempSync } from "node:fs";
 import { Effect, Ref } from "effect";
-import { describe, expect, it } from "vitest";
-import { Display, type DisplayEntry, SilentDisplay } from "./Display.js";
+import { describe, expect, it, vi } from "vitest";
+import {
+  Display,
+  type DisplayEntry,
+  FileDisplay,
+  SilentDisplay,
+} from "./Display.js";
 
 describe("SilentDisplay", () => {
   const setup = () => {
@@ -168,5 +177,130 @@ describe("SilentDisplay", () => {
         "status",
       ]);
     });
+  });
+});
+
+describe("FileDisplay", () => {
+  const setup = () => {
+    const dir = mkdtempSync(join(tmpdir(), "sandcastle-display-"));
+    const logPath = join(dir, "test.log");
+    const layer = FileDisplay.layer(logPath);
+    return { logPath, layer };
+  };
+
+  const readLog = (logPath: string) => readFileSync(logPath, "utf-8");
+
+  it("writes intro to file and prints start message to console", async () => {
+    const { logPath, layer } = setup();
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const d = yield* Display;
+        yield* d.intro("sandcastle");
+      }).pipe(Effect.provide(layer)),
+    );
+
+    const log = readLog(logPath);
+    expect(log).toContain("=== sandcastle ===");
+    expect(spy).toHaveBeenCalledWith(`Agent started. Logs: ${logPath}`);
+    spy.mockRestore();
+  });
+
+  it("writes status messages to file only", async () => {
+    const { logPath, layer } = setup();
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const d = yield* Display;
+        yield* d.status("Syncing files...", "info");
+        yield* d.status("Done!", "success");
+      }).pipe(Effect.provide(layer)),
+    );
+
+    const log = readLog(logPath);
+    expect(log).toContain("[INFO] Syncing files...");
+    expect(log).toContain("[SUCCESS] Done!");
+    // console.log should not have been called (no intro)
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it("writes spinner messages to file and passes through result", async () => {
+    const { logPath, layer } = setup();
+
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const d = yield* Display;
+        return yield* d.spinner("Loading...", Effect.succeed("hello"));
+      }).pipe(Effect.provide(layer)),
+    );
+
+    expect(result).toBe("hello");
+    const log = readLog(logPath);
+    expect(log).toContain("[SPINNER] Loading...");
+    expect(log).toContain("[SPINNER] Loading... done");
+  });
+
+  it("writes summary to file", async () => {
+    const { logPath, layer } = setup();
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const d = yield* Display;
+        yield* d.summary("Token Usage", {
+          "Input tokens": "1,234",
+          "Output tokens": "567",
+        });
+      }).pipe(Effect.provide(layer)),
+    );
+
+    const log = readLog(logPath);
+    expect(log).toContain("[SUMMARY] Token Usage");
+    expect(log).toContain("Input tokens: 1,234");
+    expect(log).toContain("Output tokens: 567");
+  });
+
+  it("writes taskLog messages to file", async () => {
+    const { logPath, layer } = setup();
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const d = yield* Display;
+        yield* d.taskLog("Sync in", (msg) =>
+          Effect.sync(() => {
+            msg("Cloning repo...");
+            msg("Running hooks...");
+          }),
+        );
+      }).pipe(Effect.provide(layer)),
+    );
+
+    const log = readLog(logPath);
+    expect(log).toContain("[TASK] Sync in");
+    expect(log).toContain("Cloning repo...");
+    expect(log).toContain("Running hooks...");
+    expect(log).toContain("[TASK] Sync in done");
+  });
+
+  it("writes text messages to file", async () => {
+    const { logPath, layer } = setup();
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const d = yield* Display;
+        yield* d.text("Some agent output here");
+      }).pipe(Effect.provide(layer)),
+    );
+
+    const log = readLog(logPath);
+    expect(log).toContain("Some agent output here");
+  });
+
+  it("creates an empty log file on initialization", async () => {
+    const { logPath } = setup();
+    const log = readLog(logPath);
+    expect(log).toBe("");
   });
 });
