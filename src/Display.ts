@@ -1,5 +1,6 @@
 import * as clack from "@clack/prompts";
-import { appendFileSync, writeFileSync } from "node:fs";
+import { FileSystem } from "@effect/platform";
+import { dirname } from "node:path";
 import { Context, Effect, Layer, Ref } from "effect";
 import { styleText } from "node:util";
 
@@ -110,53 +111,62 @@ export const SilentDisplay = {
     }),
 };
 
-const appendToLog = (filePath: string, line: string): void => {
-  appendFileSync(filePath, line + "\n");
-};
-
 export const FileDisplay = {
-  layer: (filePath: string): Layer.Layer<Display> => {
-    writeFileSync(filePath, "");
-    return Layer.succeed(Display, {
-      intro: () => Effect.void,
+  layer: (
+    filePath: string,
+  ): Layer.Layer<Display, never, FileSystem.FileSystem> =>
+    Layer.effect(
+      Display,
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        yield* fs
+          .makeDirectory(dirname(filePath), { recursive: true })
+          .pipe(Effect.orDie);
+        yield* fs.writeFileString(filePath, "").pipe(Effect.orDie);
 
-      status: (message, severity) =>
-        Effect.sync(() => {
-          appendToLog(filePath, message);
-        }),
+        const appendToLog = (line: string): Effect.Effect<void> =>
+          fs
+            .writeFileString(filePath, line + "\n", { flag: "a" })
+            .pipe(Effect.orDie);
 
-      spinner: (message, effect) =>
-        Effect.gen(function* () {
-          appendToLog(filePath, `${message}...`);
-          const result = yield* effect;
-          appendToLog(filePath, `${message} done`);
-          return result;
-        }),
+        return {
+          intro: () => Effect.void,
 
-      summary: (title, rows) =>
-        Effect.sync(() => {
-          const lines = Object.entries(rows)
-            .map(([key, value]) => `  ${key}: ${value}`)
-            .join("\n");
-          appendToLog(filePath, `${title}\n${lines}`);
-        }),
+          status: (message, _severity) => appendToLog(message),
 
-      taskLog: (title, effect) =>
-        Effect.gen(function* () {
-          appendToLog(filePath, title);
-          const result = yield* effect((msg) => {
-            appendToLog(filePath, `  ${msg}`);
-          });
-          appendToLog(filePath, `${title} done`);
-          return result;
-        }),
+          spinner: (message, effect) =>
+            Effect.gen(function* () {
+              yield* appendToLog(`${message}...`);
+              const result = yield* effect;
+              yield* appendToLog(`${message} done`);
+              return result;
+            }),
 
-      text: (message) =>
-        Effect.sync(() => {
-          appendToLog(filePath, message);
-        }),
-    });
-  },
+          summary: (title, rows) => {
+            const lines = Object.entries(rows)
+              .map(([key, value]) => `  ${key}: ${value}`)
+              .join("\n");
+            return appendToLog(`${title}\n${lines}`);
+          },
+
+          taskLog: (title, effect) =>
+            Effect.gen(function* () {
+              yield* appendToLog(title);
+              const messages: string[] = [];
+              const result = yield* effect((msg) => {
+                messages.push(msg);
+              });
+              for (const msg of messages) {
+                yield* appendToLog(`  ${msg}`);
+              }
+              yield* appendToLog(`${title} done`);
+              return result;
+            }),
+
+          text: (message) => appendToLog(message),
+        };
+      }),
+    ),
 };
 
 const severityToClack: Record<Severity, (message: string) => void> = {

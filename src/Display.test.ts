@@ -1,8 +1,8 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { mkdtempSync } from "node:fs";
-import { Effect, Ref } from "effect";
+import { NodeFileSystem } from "@effect/platform-node";
+import { Effect, Layer, Ref } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   Display,
@@ -185,7 +185,10 @@ describe("FileDisplay", () => {
   const setup = () => {
     const dir = mkdtempSync(join(tmpdir(), "sandcastle-display-"));
     const logPath = join(dir, "test.log");
-    const layer = FileDisplay.layer(logPath);
+    const layer = Layer.provide(
+      FileDisplay.layer(logPath),
+      NodeFileSystem.layer,
+    );
     return { logPath, layer };
   };
 
@@ -295,7 +298,15 @@ describe("FileDisplay", () => {
   });
 
   it("creates an empty log file on initialization", async () => {
-    const { logPath } = setup();
+    const { logPath, layer } = setup();
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const d = yield* Display;
+        yield* d.intro("sandcastle");
+      }).pipe(Effect.provide(layer)),
+    );
+
     const log = readLog(logPath);
     expect(log).toBe("");
   });

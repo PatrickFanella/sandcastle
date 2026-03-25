@@ -1,9 +1,9 @@
 import { NodeContext } from "@effect/platform-node";
-import { mkdirSync } from "node:fs";
-import path, { dirname, join } from "node:path";
+import path, { join } from "node:path";
 import { Effect, Layer } from "effect";
 import { getAgentProvider } from "./AgentProvider.js";
 import { readConfig } from "./Config.js";
+import { NodeFileSystem } from "@effect/platform-node";
 import { ClackDisplay, Display, FileDisplay } from "./Display.js";
 import { orchestrate } from "./Orchestrator.js";
 import { resolvePrompt } from "./PromptResolver.js";
@@ -180,13 +180,15 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
   const displayLayer =
     resolvedLogging.type === "file"
       ? (() => {
-          mkdirSync(dirname(resolvedLogging.path), { recursive: true });
           console.log(`Agent started`);
           console.log(`  Run this to see logs:`);
           console.log(
             `  tail -f ${path.relative(process.cwd(), resolvedLogging.path)}`,
           );
-          return FileDisplay.layer(resolvedLogging.path);
+          return Layer.provide(
+            FileDisplay.layer(resolvedLogging.path),
+            NodeFileSystem.layer,
+          );
         })()
       : ClackDisplay.layer;
 
