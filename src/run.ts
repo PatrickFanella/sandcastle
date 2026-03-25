@@ -1,5 +1,5 @@
 import { mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import path, { dirname, join } from "node:path";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import { Effect, Layer } from "effect";
@@ -133,8 +133,10 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
       ? (() => {
           mkdirSync(dirname(resolvedLogging.path), { recursive: true });
           console.log(`Agent started`);
-          console.log(`Logging to file`);
-          console.log(`  tail -f ${resolvedLogging.path}`);
+          console.log(`  Run this to see logs:`);
+          console.log(
+            `  tail -f ${path.relative(process.cwd(), resolvedLogging.path)}`,
+          );
           return FileDisplay.layer(resolvedLogging.path);
         })()
       : ClackDisplay.layer;
