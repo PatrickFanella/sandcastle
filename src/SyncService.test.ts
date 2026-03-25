@@ -185,6 +185,48 @@ describe("syncIn", () => {
     );
   });
 
+  it("all host branches available in sandbox after sync-in", async () => {
+    const { hostDir, sandboxRepoDir, layer } = await setup();
+    await initRepo(hostDir);
+    await commitFile(hostDir, "base.txt", "base", "initial on main");
+
+    // Create several branches on the host
+    await execAsync("git checkout -b feature-a", { cwd: hostDir });
+    await commitFile(hostDir, "a.txt", "a", "feature a commit");
+
+    await execAsync("git checkout main", { cwd: hostDir });
+    await execAsync("git checkout -b feature-b", { cwd: hostDir });
+    await commitFile(hostDir, "b.txt", "b", "feature b commit");
+
+    await execAsync("git checkout main", { cwd: hostDir });
+    await execAsync("git checkout -b feature-c", { cwd: hostDir });
+    await commitFile(hostDir, "c.txt", "c", "feature c commit");
+
+    // Sync-in from main
+    await execAsync("git checkout main", { cwd: hostDir });
+    await Effect.runPromise(
+      syncIn(hostDir, sandboxRepoDir).pipe(Effect.provide(layer)),
+    );
+
+    // All branches should be available in the sandbox
+    const { stdout: branches } = await execAsync("git branch -a", {
+      cwd: sandboxRepoDir,
+    });
+    expect(branches).toContain("feature-a");
+    expect(branches).toContain("feature-b");
+    expect(branches).toContain("feature-c");
+
+    // Can check out each branch and see its content
+    await execAsync("git checkout feature-a", { cwd: sandboxRepoDir });
+    expect(await readFile(join(sandboxRepoDir, "a.txt"), "utf-8")).toBe("a");
+
+    await execAsync("git checkout feature-b", { cwd: sandboxRepoDir });
+    expect(await readFile(join(sandboxRepoDir, "b.txt"), "utf-8")).toBe("b");
+
+    await execAsync("git checkout feature-c", { cwd: sandboxRepoDir });
+    expect(await readFile(join(sandboxRepoDir, "c.txt"), "utf-8")).toBe("c");
+  });
+
   it("branch with commits ahead of main — sandbox has divergent history", async () => {
     const { hostDir, sandboxRepoDir, layer } = await setup();
     await initRepo(hostDir);
