@@ -1,6 +1,6 @@
 import { NodeContext } from "@effect/platform-node";
 import { Effect } from "effect";
-import { mkdtemp, writeFile, mkdir } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -35,19 +35,8 @@ describe("PromptResolver", () => {
     expect(error.message).toContain("both");
   });
 
-  it("defaults to .sandcastle/prompt.md when neither is provided", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "prompt-resolver-"));
-    await mkdir(join(dir, ".sandcastle"), { recursive: true });
-    await writeFile(join(dir, ".sandcastle", "prompt.md"), "default prompt");
-
-    const result = await run(resolvePrompt({ cwd: dir }));
-    expect(result).toBe("default prompt");
-  });
-
-  it("errors when default prompt file does not exist", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "prompt-resolver-"));
-
-    const error = await run(resolvePrompt({ cwd: dir }).pipe(Effect.flip));
+  it("errors when neither prompt nor promptFile is provided", async () => {
+    const error = await run(resolvePrompt({}).pipe(Effect.flip));
     expect(error).toBeInstanceOf(PromptError);
     expect(error.message).toContain("prompt");
   });

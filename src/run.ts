@@ -163,7 +163,7 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
 
   // Resolve prompt
   const rawPrompt = await Effect.runPromise(
-    resolvePrompt({ prompt, promptFile, cwd: hostRepoDir }).pipe(
+    resolvePrompt({ prompt, promptFile }).pipe(
       Effect.provide(NodeContext.layer),
     ),
   );
