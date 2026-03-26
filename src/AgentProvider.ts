@@ -3,7 +3,6 @@ import { SANDBOX_WORKSPACE_DIR } from "./SandboxFactory.js";
 export interface AgentProvider {
   readonly name: string;
   readonly envManifest: Record<string, string>;
-  readonly envCheck: (env: Record<string, string>) => void;
   readonly dockerfileTemplate: string;
 }
 
@@ -54,19 +53,6 @@ export const claudeCodeProvider: AgentProvider = {
   envManifest: {
     ANTHROPIC_API_KEY: "Anthropic API key",
     GH_TOKEN: "GitHub personal access token",
-  },
-
-  envCheck(env: Record<string, string>): void {
-    if (!env["ANTHROPIC_API_KEY"]) {
-      throw new Error(
-        "ANTHROPIC_API_KEY not found. Set it in .env, .sandcastle/.env, or as an environment variable.",
-      );
-    }
-    if (!env["GH_TOKEN"]) {
-      throw new Error(
-        "GH_TOKEN not found. Set it in .env, .sandcastle/.env, or as an environment variable.",
-      );
-    }
   },
 
   dockerfileTemplate: CLAUDE_CODE_DOCKERFILE,

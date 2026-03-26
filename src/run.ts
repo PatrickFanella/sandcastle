@@ -187,11 +187,10 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
   const resolvedImageName =
     options.imageName ?? config.imageName ?? defaultImageName(hostRepoDir);
 
-  // Resolve env vars and run agent provider's env check
+  // Resolve env vars
   const env = await Effect.runPromise(
     resolveEnv(hostRepoDir).pipe(Effect.provide(NodeContext.layer)),
   );
-  provider.envCheck(env);
 
   // When no branch is provided, generate a temporary branch name.
   // This names the log file after the temp branch and also directs

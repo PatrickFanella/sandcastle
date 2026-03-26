@@ -20,42 +20,6 @@ describe("claudeCodeProvider", () => {
   });
 });
 
-describe("claudeCodeProvider.envCheck", () => {
-  it("passes with ANTHROPIC_API_KEY and GH_TOKEN", () => {
-    expect(() =>
-      claudeCodeProvider.envCheck({
-        ANTHROPIC_API_KEY: "key",
-        GH_TOKEN: "gh",
-      }),
-    ).not.toThrow();
-  });
-
-  it("throws when ANTHROPIC_API_KEY is missing", () => {
-    expect(() => claudeCodeProvider.envCheck({ GH_TOKEN: "gh" })).toThrow(
-      /ANTHROPIC_API_KEY/,
-    );
-  });
-
-  it("throws when CLAUDE_CODE_OAUTH_TOKEN is present but ANTHROPIC_API_KEY is absent", () => {
-    expect(() =>
-      claudeCodeProvider.envCheck({
-        CLAUDE_CODE_OAUTH_TOKEN: "tok",
-        GH_TOKEN: "gh",
-      }),
-    ).toThrow(/ANTHROPIC_API_KEY/);
-  });
-
-  it("throws when GH_TOKEN is missing", () => {
-    expect(() =>
-      claudeCodeProvider.envCheck({ ANTHROPIC_API_KEY: "key" }),
-    ).toThrow(/GH_TOKEN/);
-  });
-
-  it("throws when env is empty", () => {
-    expect(() => claudeCodeProvider.envCheck({})).toThrow();
-  });
-});
-
 describe("getAgentProvider", () => {
   it("returns claude-code provider for 'claude-code'", () => {
     const provider = getAgentProvider("claude-code");

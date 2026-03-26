@@ -11,11 +11,10 @@
 
 ## Environment
 
-| Term             | Definition                                                                                                                           | Aliases to avoid                               |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------- |
-| **Env resolver** | The module that loads environment variables from `.env` files and `process.env`, returning a generic key-value map                   | "token resolver" (too specific to auth tokens) |
-| **Env manifest** | The agent provider's declaration of which environment variables it requires or supports, used to scaffold `.env.example`             | "env example", "env template", "env schema"    |
-| **Env check**    | The agent provider's validation function that inspects the resolved env map and fails with a clear error if requirements are not met | "token validation", "env validation"           |
+| Term             | Definition                                                                                                               | Aliases to avoid                               |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------- |
+| **Env resolver** | The module that loads environment variables from `.env` files and `process.env`, returning a generic key-value map       | "token resolver" (too specific to auth tokens) |
+| **Env manifest** | The agent provider's declaration of which environment variables it requires or supports, used to scaffold `.env.example` | "env example", "env template", "env schema"    |
 
 ## Execution
 
@@ -64,9 +63,9 @@
 - **Init** creates the **config directory** on the **host** and builds the Docker image
 - **Build-image** requires the **config directory** to already exist on the **host**
 - The **env resolver** loads env vars from: **config directory** `.env` > `process.env` — only keys declared in the **config directory** `.env` are resolved from `process.env`; repo root `.env` is not part of the resolution chain
-- Each **agent provider** declares an **env manifest** and an **env check**
+- Each **agent provider** declares an **env manifest**
 - The **agent provider** is selected via the `agent` field in config or `--agent` CLI flag
-- At launch, Sandcastle resolves env vars via the **env resolver**, runs the active **agent provider**'s **env check**, then passes the full env map into the **sandbox**
+- At launch, Sandcastle resolves env vars via the **env resolver** and passes the full env map into the **sandbox**
 - **Init** uses the **agent provider**'s **env manifest** to scaffold `.env.example` and its Dockerfile template to scaffold the Dockerfile
 - **Prompt argument substitution** runs once after prompt resolution, replacing `{{KEY}}` placeholders with values from **prompt arguments** — this happens on the **host**, before the **sandbox** exists
 - **Prompt expansion** runs before each **iteration**, evaluating all **shell expressions** inside the **sandbox**
@@ -81,11 +80,11 @@
 
 > **Dev:** "What if I want to add support for OpenCode instead of Claude Code?"
 
-> **Domain expert:** "Create a new **agent provider**. It declares its own **env manifest** — maybe it needs `OPEN_CODE_API_KEY` instead of `ANTHROPIC_API_KEY`. Its **env check** validates those requirements. And it provides its own Dockerfile template that installs the right binary."
+> **Domain expert:** "Create a new **agent provider**. It declares its own **env manifest** — maybe it needs `OPEN_CODE_API_KEY` instead of `ANTHROPIC_API_KEY`. And it provides its own Dockerfile template that installs the right binary."
 
 > **Dev:** "How does Sandcastle know which **agent provider** to use?"
 
-> **Domain expert:** "The `agent` field in `config.json`, or the `--agent` CLI flag. The **env resolver** loads all env vars generically — it doesn't know or care which **agent** is running. The **agent provider**'s **env check** is what enforces the tool-specific requirements."
+> **Domain expert:** "The `agent` field in `config.json`, or the `--agent` CLI flag. The **env resolver** loads all env vars generically and passes them straight through to the **sandbox** — the **agent** handles missing credentials on its own."
 
 > **Dev:** "I want to reuse the same **prompt** file for multiple issues in parallel. How do I pass the issue number in?"
 

@@ -23,7 +23,6 @@ const fakeProvider: AgentProvider = {
     FAKE_TOKEN: "Fake agent token",
     FAKE_SECRET: "Fake agent secret",
   },
-  envCheck: () => {},
   dockerfileTemplate: "FROM ubuntu:latest\nRUN echo fake\n",
 };
 

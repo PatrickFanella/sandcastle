@@ -340,16 +340,8 @@ const interactiveCommand = Command.make(
           }),
       });
 
-      // Resolve env vars and run agent provider's env check
+      // Resolve env vars
       const env = yield* resolveEnv(hostRepoDir);
-
-      yield* Effect.try({
-        try: () => provider.envCheck(env),
-        catch: (e) =>
-          new InitError({
-            message: `${e instanceof Error ? e.message : e}`,
-          }),
-      });
 
       const resolvedModel = model._tag === "Some" ? model.value : undefined;
 
