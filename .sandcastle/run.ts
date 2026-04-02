@@ -13,7 +13,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   const plan = await sandcastle.run({
     name: "Planner",
     hooks,
-    model: "claude-opus-4-6",
+    agent: sandcastle.claudeCode("claude-opus-4-6"),
     promptFile: "./.sandcastle/plan-prompt.md",
     copyToSandbox: ["node_modules"],
   });
@@ -47,7 +47,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
       const result = await sandcastle.run({
         name: "Implementer #" + issue.number,
         hooks,
-        model: "claude-opus-4-6",
+        agent: sandcastle.claudeCode("claude-opus-4-6"),
         promptFile: "./.sandcastle/implement-prompt.md",
         promptArgs: {
           ISSUE_NUMBER: String(issue.number),
@@ -62,7 +62,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
         await sandcastle.run({
           name: "Reviewer #" + issue.number,
           hooks,
-          model: "claude-opus-4-6",
+          agent: sandcastle.claudeCode("claude-opus-4-6"),
           promptFile: "./.sandcastle/review-prompt.md",
           promptArgs: {
             ISSUE_NUMBER: String(issue.number),
@@ -121,7 +121,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     name: "Merger",
     hooks,
     maxIterations: 10,
-    model: "claude-sonnet-4-6",
+    agent: sandcastle.claudeCode("claude-opus-4-6"),
     promptFile: "./.sandcastle/merge-prompt.md",
     promptArgs: {
       BRANCHES: completedBranches.map((b) => `- ${b}`).join("\n"),
