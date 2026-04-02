@@ -1,9 +1,5 @@
 import * as sandcastle from "@ai-hero/sandcastle";
 
-const hooks = {
-  onSandboxReady: [{ command: "npm install && npm run build" }],
-};
-
 const MAX_ITERATIONS = 10;
 
 for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
@@ -12,10 +8,11 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // Phase 1: Plan — orchestrator agent analyzes issues and picks parallelizable work
   const plan = await sandcastle.run({
     name: "Planner",
-    hooks,
     agent: sandcastle.claudeCode("claude-opus-4-6"),
     promptFile: "./.sandcastle/plan-prompt.md",
-    copyToSandbox: ["node_modules"],
+    worktree: {
+      mode: "none",
+    },
   });
 
   const planMatch = plan.stdout.match(/<plan>([\s\S]*?)<\/plan>/);
@@ -44,6 +41,10 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // Phase 2: Execute + Review — implement then review each branch, all in parallel
   const settled = await Promise.allSettled(
     issues.map(async (issue) => {
+      const hooks = {
+        onSandboxReady: [{ command: "npm install && npm run build" }],
+      };
+
       const result = await sandcastle.run({
         name: "Implementer #" + issue.number,
         hooks,
@@ -54,7 +55,10 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
           ISSUE_TITLE: issue.title,
           BRANCH: issue.branch,
         },
-        branch: issue.branch,
+        worktree: {
+          mode: "branch",
+          branch: issue.branch,
+        },
         copyToSandbox: ["node_modules"],
       });
 
@@ -69,7 +73,10 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
             ISSUE_TITLE: issue.title,
             BRANCH: issue.branch,
           },
-          branch: issue.branch,
+          worktree: {
+            mode: "branch",
+            branch: issue.branch,
+          },
           copyToSandbox: ["node_modules"],
         });
       }
@@ -119,7 +126,6 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // Phase 3: Merge — one agent merges all branches together
   await sandcastle.run({
     name: "Merger",
-    hooks,
     maxIterations: 10,
     agent: sandcastle.claudeCode("claude-opus-4-6"),
     promptFile: "./.sandcastle/merge-prompt.md",
@@ -129,7 +135,9 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
         .map((i) => `- #${i.number}: ${i.title}`)
         .join("\n"),
     },
-    copyToSandbox: ["node_modules"],
+    worktree: {
+      mode: "none",
+    },
   });
 
   console.log("\nBranches merged.");
