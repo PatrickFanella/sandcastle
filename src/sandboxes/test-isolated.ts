@@ -14,9 +14,15 @@ import { createInterface } from "node:readline";
 import {
   createIsolatedSandboxProvider,
   type ExecResult,
+  type IsolatedBranchStrategy,
   type IsolatedSandboxHandle,
   type IsolatedSandboxProvider,
 } from "../SandboxProvider.js";
+
+export interface TestIsolatedOptions {
+  /** Branch strategy for this provider. Defaults to { type: "merge-to-head" }. */
+  readonly branchStrategy?: IsolatedBranchStrategy;
+}
 
 /**
  * Create a filesystem-based test isolated sandbox provider.
@@ -25,9 +31,12 @@ import {
  * `copyIn`/`copyOut` copy files between host and the temp dir,
  * and `close` removes the temp dir.
  */
-export const testIsolated = (): IsolatedSandboxProvider =>
+export const testIsolated = (
+  options?: TestIsolatedOptions,
+): IsolatedSandboxProvider =>
   createIsolatedSandboxProvider({
     name: "test-isolated",
+    branchStrategy: options?.branchStrategy,
     create: async (): Promise<IsolatedSandboxHandle> => {
       const sandboxRoot = await mkdtemp(join(tmpdir(), "sandcastle-test-"));
       const workspacePath = join(sandboxRoot, "workspace");

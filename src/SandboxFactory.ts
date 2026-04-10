@@ -22,6 +22,7 @@ import type {
   BindMountBranchStrategy,
   IsolatedSandboxProvider,
   IsolatedSandboxHandle,
+  IsolatedBranchStrategy,
 } from "./SandboxProvider.js";
 import { syncIn } from "./syncIn.js";
 import { syncOut } from "./syncOut.js";
@@ -333,14 +334,22 @@ export const WorktreeDockerSandboxFactory = {
         sandboxProvider,
       } = yield* SandboxConfig;
 
-      // Read branch strategy from the provider for bind-mount providers
-      const branchStrategy: BindMountBranchStrategy | undefined =
-        sandboxProvider.tag === "bind-mount"
-          ? sandboxProvider.branchStrategy
-          : undefined;
-      const isHeadMode = branchStrategy?.type === "head";
-      const branch =
-        branchStrategy?.type === "branch" ? branchStrategy.branch : undefined;
+      // Read branch strategy from the provider
+      let isHeadMode = false;
+      let branch: string | undefined;
+
+      if (sandboxProvider.tag === "bind-mount") {
+        const bs = sandboxProvider.branchStrategy;
+        isHeadMode = bs.type === "head";
+        if (bs.type === "branch") {
+          branch = bs.branch;
+        }
+      } else {
+        const bs = sandboxProvider.branchStrategy;
+        if (bs.type === "branch") {
+          branch = bs.branch;
+        }
+      }
       const fileSystem = yield* FileSystem.FileSystem;
       const display = yield* Display;
       return {

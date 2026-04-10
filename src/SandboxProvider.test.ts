@@ -131,4 +131,36 @@ describe("createIsolatedSandboxProvider", () => {
 
     expect(provider.tag).toBe("isolated");
   });
+
+  it("defaults branchStrategy to merge-to-head when omitted", () => {
+    const provider = createIsolatedSandboxProvider({
+      name: "test-isolated",
+      create: async () => makeMockHandle(),
+    });
+
+    expect(provider.branchStrategy).toEqual({ type: "merge-to-head" });
+  });
+
+  it("stores explicit branchStrategy on the instance", () => {
+    const provider = createIsolatedSandboxProvider({
+      name: "test-isolated",
+      branchStrategy: { type: "branch", branch: "feature/foo" },
+      create: async () => makeMockHandle(),
+    });
+
+    expect(provider.branchStrategy).toEqual({
+      type: "branch",
+      branch: "feature/foo",
+    });
+  });
+
+  it("stores merge-to-head branchStrategy on the instance", () => {
+    const provider = createIsolatedSandboxProvider({
+      name: "test-isolated",
+      branchStrategy: { type: "merge-to-head" },
+      create: async () => makeMockHandle(),
+    });
+
+    expect(provider.branchStrategy).toEqual({ type: "merge-to-head" });
+  });
 });

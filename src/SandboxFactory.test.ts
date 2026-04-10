@@ -15,6 +15,11 @@ import {
   type BindMountBranchStrategy,
 } from "./SandboxProvider.js";
 import { testIsolated } from "./sandboxes/test-isolated.js";
+import {
+  createIsolatedSandboxProvider,
+  type IsolatedSandboxHandle,
+  type IsolatedBranchStrategy,
+} from "./SandboxProvider.js";
 
 vi.mock("./WorktreeManager.js", () => ({
   create: vi.fn(),
@@ -756,5 +761,20 @@ describe("WorktreeDockerSandboxFactory — isolated providers", () => {
         yield* factory.withSandbox(() => Effect.void);
       }).pipe(Effect.provide(makeIsolatedLayer(hostDir, ["nonexistent.txt"]))),
     );
+  });
+
+  it("reads branchStrategy from isolated provider (defaults to merge-to-head)", () => {
+    const provider = testIsolated();
+    expect(provider.branchStrategy).toEqual({ type: "merge-to-head" });
+  });
+
+  it("accepts explicit branchStrategy on testIsolated()", () => {
+    const provider = testIsolated({
+      branchStrategy: { type: "branch", branch: "feature/foo" },
+    });
+    expect(provider.branchStrategy).toEqual({
+      type: "branch",
+      branch: "feature/foo",
+    });
   });
 });
