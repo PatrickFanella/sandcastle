@@ -7,6 +7,7 @@
  */
 
 import { execFile, execFileSync, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 import { Effect } from "effect";
 import {
@@ -41,7 +42,6 @@ export const docker = (options?: DockerOptions): SandboxProvider => {
     create: async (
       createOptions: BindMountCreateOptions,
     ): Promise<BindMountSandboxHandle> => {
-      const { randomUUID } = await import("node:crypto");
       const containerName = `sandcastle-${randomUUID()}`;
 
       const workspacePath =

@@ -38,7 +38,10 @@ import {
   makeSandboxLayerFromHandle,
   resolveGitVolumeMounts,
 } from "./SandboxFactory.js";
-import type { SandboxProvider } from "./SandboxProvider.js";
+import type {
+  SandboxProvider,
+  BindMountSandboxHandle,
+} from "./SandboxProvider.js";
 import * as WorktreeManager from "./WorktreeManager.js";
 import { copyToSandbox } from "./CopyToSandbox.js";
 
@@ -148,9 +151,7 @@ export const createSandbox = async (
 
   // 3. Start container (Docker mode), provider mode, or local sandbox layer (test mode)
   let containerName: string | undefined;
-  let providerHandle:
-    | import("./SandboxProvider.js").BindMountSandboxHandle
-    | undefined;
+  let providerHandle: BindMountSandboxHandle | undefined;
   let sandboxLayer: Layer.Layer<SandboxTag>;
   let sandboxRepoDir: string;
 

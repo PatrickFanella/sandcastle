@@ -416,6 +416,7 @@ export const resolveGitVolumeMounts = (
     const parentGitDir = resolve(gitdirPath, "..", "..");
     return [`${gitPath}:${gitPath}`, `${parentGitDir}:${parentGitDir}`];
   });
+
 /**
  * Convert git mount strings ("host:container") into the provider's mounts format.
  */
@@ -666,12 +667,8 @@ export const WorktreeDockerSandboxFactory = {
                           ).pipe(
                             Effect.map(({ handle, sandboxLayer }) => ({
                               worktreeInfo,
-                              handle: handle as
-                                | BindMountSandboxHandle
-                                | undefined,
-                              sandboxLayer: sandboxLayer as
-                                | Layer.Layer<Sandbox>
-                                | undefined,
+                              handle,
+                              sandboxLayer,
                               cleanupContainerOnly: () => {},
                               onSignal: () => {},
                             })),
@@ -709,12 +706,8 @@ export const WorktreeDockerSandboxFactory = {
                           ),
                           Effect.map(({ cleanupContainerOnly, onSignal }) => ({
                             worktreeInfo,
-                            handle: undefined as
-                              | BindMountSandboxHandle
-                              | undefined,
-                            sandboxLayer: undefined as
-                              | Layer.Layer<Sandbox>
-                              | undefined,
+                            handle: undefined,
+                            sandboxLayer: undefined,
                             cleanupContainerOnly,
                             onSignal,
                           })),
