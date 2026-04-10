@@ -1,5 +1,5 @@
 import { exec } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { claudeCode, pi } from "./AgentProvider.js";
 import { createSandbox } from "./createSandbox.js";
 import { Sandbox } from "./SandboxFactory.js";
+import type { BindMountSandboxHandle } from "./SandboxProvider.js";
 import { createBindMountSandboxProvider } from "./SandboxProvider.js";
 import { makeLocalSandboxLayer } from "./testSandbox.js";
 
@@ -469,6 +470,220 @@ describe("createSandbox", () => {
         "utf-8",
       );
       expect(hookOutput.trim()).toBe("hook-ran");
+    } finally {
+      await sandbox.close();
+      await rm(hostDir, { recursive: true, force: true });
+    }
+  });
+
+  it("provider's create() is called exactly once across multiple .run() calls", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "sandbox-test-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "init.txt", "init", "initial commit");
+
+    let createCallCount = 0;
+    let closeCallCount = 0;
+    let capturedHandle: BindMountSandboxHandle | undefined;
+
+    // Isolated git config so global writes don't pollute developer config
+    const gitTmpDir = mkdtempSync(join(tmpdir(), "test-gitconfig-"));
+    const globalConfigPath = join(gitTmpDir, ".gitconfig");
+    writeFileSync(globalConfigPath, "");
+    const isolatedEnv = {
+      ...process.env,
+      GIT_CONFIG_GLOBAL: globalConfigPath,
+    };
+
+    const spyProvider = createBindMountSandboxProvider({
+      name: "spy",
+      create: async (opts) => {
+        createCallCount++;
+        const workDir = opts.worktreePath;
+        const handle: BindMountSandboxHandle = {
+          workspacePath: workDir,
+          exec: async (cmd, execOpts) => {
+            const cwd = execOpts?.cwd ?? workDir;
+            // Short-circuit agent commands
+            if (cmd.startsWith("claude ")) {
+              return { stdout: "mock", stderr: "", exitCode: 0 };
+            }
+            const result = await execAsync(cmd, { cwd, env: isolatedEnv });
+            return {
+              stdout: result.stdout,
+              stderr: result.stderr,
+              exitCode: 0,
+            };
+          },
+          execStreaming: async (cmd, onLine, execOpts) => {
+            const cwd = execOpts?.cwd ?? workDir;
+            if (cmd.startsWith("claude ")) {
+              const output = toStreamJson("mock output");
+              for (const line of output.split("\n")) onLine(line);
+              return { stdout: output, stderr: "", exitCode: 0 };
+            }
+            const result = await execAsync(cmd, { cwd, env: isolatedEnv });
+            for (const line of result.stdout.split("\n")) onLine(line);
+            return {
+              stdout: result.stdout,
+              stderr: result.stderr,
+              exitCode: 0,
+            };
+          },
+          close: async () => {
+            closeCallCount++;
+          },
+        };
+        capturedHandle = handle;
+        return handle;
+      },
+    });
+
+    const sandbox = await createSandbox({
+      branch: "test-create-once",
+      sandbox: spyProvider,
+      _test: { hostRepoDir: hostDir },
+    });
+
+    try {
+      expect(createCallCount).toBe(1);
+
+      await sandbox.run({
+        agent: testProvider,
+        prompt: "first run",
+        maxIterations: 1,
+      });
+      expect(createCallCount).toBe(1);
+
+      await sandbox.run({
+        agent: testProvider,
+        prompt: "second run",
+        maxIterations: 1,
+      });
+      expect(createCallCount).toBe(1);
+    } finally {
+      await sandbox.close();
+      expect(closeCallCount).toBe(1);
+      await rm(hostDir, { recursive: true, force: true });
+      await rm(gitTmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("close() delegates to the provider handle's close()", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "sandbox-test-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "init.txt", "init", "initial commit");
+
+    let providerClosed = false;
+
+    const gitTmpDir = mkdtempSync(join(tmpdir(), "test-gitconfig-"));
+    const globalConfigPath = join(gitTmpDir, ".gitconfig");
+    writeFileSync(globalConfigPath, "");
+    const isolatedEnv = {
+      ...process.env,
+      GIT_CONFIG_GLOBAL: globalConfigPath,
+    };
+
+    const spyProvider = createBindMountSandboxProvider({
+      name: "spy-close",
+      create: async (opts) => ({
+        workspacePath: opts.worktreePath,
+        exec: async (cmd, execOpts) => {
+          const cwd = execOpts?.cwd ?? opts.worktreePath;
+          if (cmd.startsWith("claude "))
+            return { stdout: "mock", stderr: "", exitCode: 0 };
+          const result = await execAsync(cmd, { cwd, env: isolatedEnv });
+          return {
+            stdout: result.stdout,
+            stderr: result.stderr,
+            exitCode: 0,
+          };
+        },
+        execStreaming: async (cmd, onLine, execOpts) => {
+          const cwd = execOpts?.cwd ?? opts.worktreePath;
+          if (cmd.startsWith("claude ")) {
+            const output = toStreamJson("mock");
+            for (const line of output.split("\n")) onLine(line);
+            return { stdout: output, stderr: "", exitCode: 0 };
+          }
+          const result = await execAsync(cmd, { cwd, env: isolatedEnv });
+          return {
+            stdout: result.stdout,
+            stderr: result.stderr,
+            exitCode: 0,
+          };
+        },
+        close: async () => {
+          providerClosed = true;
+        },
+      }),
+    });
+
+    const sandbox = await createSandbox({
+      branch: "test-close-delegates",
+      sandbox: spyProvider,
+      _test: { hostRepoDir: hostDir },
+    });
+
+    expect(providerClosed).toBe(false);
+    await sandbox.close();
+    expect(providerClosed).toBe(true);
+
+    await rm(hostDir, { recursive: true, force: true });
+    await rm(gitTmpDir, { recursive: true, force: true });
+  });
+
+  it("state persists between runs — file created in run 1 exists in run 2", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "sandbox-test-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "init.txt", "init", "initial commit");
+
+    let runNumber = 0;
+    const sandbox = await createSandbox({
+      branch: "test-state-persistence",
+      sandbox: testSandbox,
+      _test: {
+        hostRepoDir: hostDir,
+        buildSandboxLayer: (sandboxDir) =>
+          makeMockAgentLayer(sandboxDir, async (cwd) => {
+            runNumber++;
+            if (runNumber === 1) {
+              // Run 1: create a file (non-committed state)
+              await writeFile(join(cwd, "persistent-state.txt"), "from-run-1");
+              return "created file";
+            }
+            // Run 2: verify the file still exists
+            const content = await readFile(
+              join(cwd, "persistent-state.txt"),
+              "utf-8",
+            );
+            if (content !== "from-run-1") {
+              throw new Error("State did not persist between runs!");
+            }
+            return "verified file exists";
+          }),
+      },
+    });
+
+    try {
+      await sandbox.run({
+        agent: testProvider,
+        prompt: "create file",
+        maxIterations: 1,
+      });
+
+      // Verify file exists on host between runs
+      const content = await readFile(
+        join(sandbox.worktreePath, "persistent-state.txt"),
+        "utf-8",
+      );
+      expect(content).toBe("from-run-1");
+
+      // Run 2 — the mock agent verifies the file persists inside the sandbox
+      await sandbox.run({
+        agent: testProvider,
+        prompt: "verify file",
+        maxIterations: 1,
+      });
     } finally {
       await sandbox.close();
       await rm(hostDir, { recursive: true, force: true });
