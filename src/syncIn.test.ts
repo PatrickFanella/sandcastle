@@ -3,6 +3,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { testIsolated } from "./sandboxes/test-isolated.js";
 import { syncIn } from "./syncIn.js";
@@ -40,7 +41,7 @@ describe("syncIn", () => {
     const provider = testIsolated();
     const handle = await provider.create({ env: {} });
     try {
-      await syncIn(hostDir, handle);
+      await Effect.runPromise(syncIn(hostDir, handle));
 
       const result = await handle.exec("cat hello.txt");
       expect(result.stdout.trim()).toBe("hello world");
@@ -59,7 +60,7 @@ describe("syncIn", () => {
     const provider = testIsolated();
     const handle = await provider.create({ env: {} });
     try {
-      await syncIn(hostDir, handle);
+      await Effect.runPromise(syncIn(hostDir, handle));
 
       // Verify HEAD matches
       const sandboxHead = (
@@ -88,7 +89,7 @@ describe("syncIn", () => {
     const provider = testIsolated();
     const handle = await provider.create({ env: {} });
     try {
-      await syncIn(hostDir, handle);
+      await Effect.runPromise(syncIn(hostDir, handle));
 
       const sandboxHead = (
         await handle.exec("git rev-parse HEAD")
@@ -110,7 +111,7 @@ describe("syncIn", () => {
     const provider = testIsolated();
     const handle = await provider.create({ env: {} });
     try {
-      const result = await syncIn(hostDir, handle);
+      const result = await Effect.runPromise(syncIn(hostDir, handle));
       expect(result.branch).toBe("main");
     } finally {
       await handle.close();
@@ -127,7 +128,7 @@ describe("syncIn", () => {
     const provider = testIsolated();
     const handle = await provider.create({ env: {} });
     try {
-      const result = await syncIn(hostDir, handle);
+      const result = await Effect.runPromise(syncIn(hostDir, handle));
       expect(result.branch).toBe("feature-branch");
 
       // Feature file should exist
@@ -157,7 +158,7 @@ describe("syncIn", () => {
     const provider = testIsolated();
     const handle = await provider.create({ env: {} });
     try {
-      await syncIn(hostDir, handle);
+      await Effect.runPromise(syncIn(hostDir, handle));
 
       // Committed content should be the original
       const content = (await handle.exec("cat committed.txt")).stdout.trim();

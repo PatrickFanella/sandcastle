@@ -4,6 +4,7 @@ import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { testIsolated } from "./sandboxes/test-isolated.js";
 import { syncIn } from "./syncIn.js";
@@ -42,7 +43,7 @@ describe("syncOut", () => {
     const provider = testIsolated();
     const handle = await provider.create({ env: {} });
     try {
-      await syncIn(hostDir, handle);
+      await Effect.runPromise(syncIn(hostDir, handle));
 
       // Make a commit inside the sandbox
       const wp = handle.workspacePath;
@@ -50,7 +51,7 @@ describe("syncOut", () => {
       await handle.exec("git add new.txt", { cwd: wp });
       await handle.exec('git commit -m "add new file"', { cwd: wp });
 
-      await syncOut(hostDir, handle);
+      await Effect.runPromise(syncOut(hostDir, handle));
 
       // Verify the commit appears on host
       const log = await getLog(hostDir);
@@ -73,7 +74,7 @@ describe("syncOut", () => {
     const provider = testIsolated();
     const handle = await provider.create({ env: {} });
     try {
-      await syncIn(hostDir, handle);
+      await Effect.runPromise(syncIn(hostDir, handle));
 
       const wp = handle.workspacePath;
       await handle.exec('echo "a" > a.txt', { cwd: wp });
@@ -88,7 +89,7 @@ describe("syncOut", () => {
       await handle.exec("git add c.txt", { cwd: wp });
       await handle.exec('git commit -m "add c"', { cwd: wp });
 
-      await syncOut(hostDir, handle);
+      await Effect.runPromise(syncOut(hostDir, handle));
 
       const log = await getLog(hostDir);
       expect(log).toHaveLength(4); // initial + 3 new
@@ -112,10 +113,10 @@ describe("syncOut", () => {
     const provider = testIsolated();
     const handle = await provider.create({ env: {} });
     try {
-      await syncIn(hostDir, handle);
+      await Effect.runPromise(syncIn(hostDir, handle));
 
       // No commits made — syncOut should be a no-op
-      await syncOut(hostDir, handle);
+      await Effect.runPromise(syncOut(hostDir, handle));
 
       const { stdout: hostHeadAfter } = await execAsync("git rev-parse HEAD", {
         cwd: hostDir,
@@ -134,7 +135,7 @@ describe("syncOut", () => {
     const provider = testIsolated();
     const handle = await provider.create({ env: {} });
     try {
-      await syncIn(hostDir, handle);
+      await Effect.runPromise(syncIn(hostDir, handle));
 
       const wp = handle.workspacePath;
 
@@ -155,7 +156,7 @@ describe("syncOut", () => {
       });
 
       // syncOut should handle the merge commit's empty patch
-      await syncOut(hostDir, handle);
+      await Effect.runPromise(syncOut(hostDir, handle));
 
       // All files should be present on host
       const mainWork = await readFile(join(hostDir, "main-work.txt"), "utf-8");
@@ -175,7 +176,7 @@ describe("syncOut", () => {
     const provider = testIsolated();
     const handle = await provider.create({ env: {} });
     try {
-      await syncIn(hostDir, handle);
+      await Effect.runPromise(syncIn(hostDir, handle));
 
       const wp = handle.workspacePath;
       // Modify tracked file (unstaged change)
@@ -184,7 +185,7 @@ describe("syncOut", () => {
       await handle.exec('echo "staged file" > staged.txt', { cwd: wp });
       await handle.exec("git add staged.txt", { cwd: wp });
 
-      await syncOut(hostDir, handle);
+      await Effect.runPromise(syncOut(hostDir, handle));
 
       // Verify uncommitted changes appear on host
       const initialContent = await readFile(
@@ -211,7 +212,7 @@ describe("syncOut", () => {
     const provider = testIsolated();
     const handle = await provider.create({ env: {} });
     try {
-      await syncIn(hostDir, handle);
+      await Effect.runPromise(syncIn(hostDir, handle));
 
       const wp = handle.workspacePath;
       // Create untracked files (not git-added)
@@ -221,7 +222,7 @@ describe("syncOut", () => {
         cwd: wp,
       });
 
-      await syncOut(hostDir, handle);
+      await Effect.runPromise(syncOut(hostDir, handle));
 
       // Verify untracked files appear on host
       const u1 = await readFile(join(hostDir, "untracked1.txt"), "utf-8");
@@ -245,7 +246,7 @@ describe("syncOut", () => {
     const provider = testIsolated();
     const handle = await provider.create({ env: {} });
     try {
-      await syncIn(hostDir, handle);
+      await Effect.runPromise(syncIn(hostDir, handle));
 
       const wp = handle.workspacePath;
 
@@ -260,7 +261,7 @@ describe("syncOut", () => {
       // 3. Leave untracked file
       await handle.exec('echo "brand new" > untracked.txt', { cwd: wp });
 
-      await syncOut(hostDir, handle);
+      await Effect.runPromise(syncOut(hostDir, handle));
 
       // Verify committed changes
       const log = await getLog(hostDir);
@@ -289,7 +290,7 @@ describe("syncOut", () => {
     const provider = testIsolated();
     const handle = await provider.create({ env: {} });
     try {
-      await syncIn(hostDir, handle);
+      await Effect.runPromise(syncIn(hostDir, handle));
 
       const wp = handle.workspacePath;
       await handle.exec('echo "new" > new.txt', { cwd: wp });
@@ -301,7 +302,7 @@ describe("syncOut", () => {
       await writeFile(join(hostDir, ".git/rebase-apply/applying"), "");
 
       // syncOut should succeed despite the stale session
-      await syncOut(hostDir, handle);
+      await Effect.runPromise(syncOut(hostDir, handle));
 
       const log = await getLog(hostDir);
       expect(log).toHaveLength(2);
@@ -319,7 +320,7 @@ describe("syncOut", () => {
     const provider = testIsolated();
     const handle = await provider.create({ env: {} });
     try {
-      await syncIn(hostDir, handle);
+      await Effect.runPromise(syncIn(hostDir, handle));
 
       const wp = handle.workspacePath;
       await handle.exec('echo "new file" > new.txt', { cwd: wp });
@@ -330,7 +331,7 @@ describe("syncOut", () => {
       await handle.exec('echo "modified" > initial.txt', { cwd: wp });
       await handle.exec('echo "untracked" > untracked.txt', { cwd: wp });
 
-      await syncOut(hostDir, handle);
+      await Effect.runPromise(syncOut(hostDir, handle));
 
       // Verify sync worked
       const log = await getLog(hostDir);
@@ -353,7 +354,7 @@ describe("syncOut", () => {
     const provider = testIsolated();
     const handle = await provider.create({ env: {} });
     try {
-      await syncIn(hostDir, handle);
+      await Effect.runPromise(syncIn(hostDir, handle));
 
       const wp = handle.workspacePath;
       // Create a commit in the sandbox that modifies initial.txt
@@ -373,7 +374,7 @@ describe("syncOut", () => {
       };
 
       try {
-        await syncOut(hostDir, handle);
+        await Effect.runPromise(syncOut(hostDir, handle));
       } finally {
         console.error = originalError;
       }
@@ -408,7 +409,7 @@ describe("syncOut", () => {
     const provider = testIsolated();
     const handle = await provider.create({ env: {} });
     try {
-      await syncIn(hostDir, handle);
+      await Effect.runPromise(syncIn(hostDir, handle));
 
       const wp = handle.workspacePath;
       // Make uncommitted changes in sandbox
@@ -426,7 +427,7 @@ describe("syncOut", () => {
       };
 
       try {
-        await syncOut(hostDir, handle);
+        await Effect.runPromise(syncOut(hostDir, handle));
       } finally {
         console.error = originalError;
       }
@@ -459,7 +460,7 @@ describe("syncOut", () => {
     const provider = testIsolated();
     const handle = await provider.create({ env: {} });
     try {
-      await syncIn(hostDir, handle);
+      await Effect.runPromise(syncIn(hostDir, handle));
 
       const wp = handle.workspacePath;
       await handle.exec('git config user.email "agent@sandbox.com"', {
@@ -470,7 +471,7 @@ describe("syncOut", () => {
       await handle.exec("git add authored.txt", { cwd: wp });
       await handle.exec('git commit -m "commit from agent"', { cwd: wp });
 
-      await syncOut(hostDir, handle);
+      await Effect.runPromise(syncOut(hostDir, handle));
 
       const { stdout: author } = await execAsync(
         'git log -1 --format="%an <%ae>"',

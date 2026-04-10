@@ -7,6 +7,7 @@ import {
   AgentError,
   CopyError,
   ExecError,
+  SyncError,
   TimeoutError,
   WorktreeError,
   type DockerError,
@@ -142,7 +143,7 @@ export class SandboxFactory extends Context.Tag("SandboxFactory")<
       makeEffect: (info: SandboxInfo) => Effect.Effect<A, E, R | Sandbox>,
     ) => Effect.Effect<
       WithSandboxResult<A>,
-      E | DockerError | WorktreeError,
+      E | DockerError | WorktreeError | SyncError,
       Exclude<R, Sandbox>
     >;
   }
@@ -274,37 +275,42 @@ const startIsolatedProviderSandbox = (
     sandboxLayer: Layer.Layer<Sandbox>;
     workspacePath: string;
   },
-  DockerError | WorktreeError
+  DockerError | WorktreeError | SyncError
 > =>
-  Effect.tryPromise({
-    try: async () => {
-      const handle = await provider.create({ env });
-      await syncIn(hostRepoDir, handle);
+  Effect.gen(function* () {
+    const handle = yield* Effect.tryPromise({
+      try: () => provider.create({ env }),
+      catch: (e) =>
+        new WorktreeError({
+          message: `Isolated provider '${provider.name}' setup failed: ${e instanceof Error ? e.message : String(e)}`,
+        }),
+    });
 
-      if (copyPaths && copyPaths.length > 0) {
-        for (const relativePath of copyPaths) {
-          const hostPath = join(hostRepoDir, relativePath);
-          if (!existsSync(hostPath)) {
-            continue;
-          }
-          const sandboxPath = join(handle.workspacePath, relativePath);
-          await handle.copyIn(hostPath, sandboxPath);
+    yield* syncIn(hostRepoDir, handle);
+
+    if (copyPaths && copyPaths.length > 0) {
+      for (const relativePath of copyPaths) {
+        const hostPath = join(hostRepoDir, relativePath);
+        if (!existsSync(hostPath)) {
+          continue;
         }
+        const sandboxPath = join(handle.workspacePath, relativePath);
+        yield* Effect.tryPromise({
+          try: () => handle.copyIn(hostPath, sandboxPath),
+          catch: (e) =>
+            new WorktreeError({
+              message: `Failed to copy ${relativePath} into sandbox: ${e instanceof Error ? e.message : String(e)}`,
+            }),
+        });
       }
+    }
 
-      return handle;
-    },
-    catch: (e) =>
-      new WorktreeError({
-        message: `Isolated provider '${provider.name}' setup failed: ${e instanceof Error ? e.message : String(e)}`,
-      }),
-  }).pipe(
-    Effect.map((handle) => ({
+    return {
       handle,
       sandboxLayer: makeSandboxLayerFromHandle(handle),
       workspacePath: handle.workspacePath,
-    })),
-  );
+    };
+  });
 
 /** Shared acquire result type for the worktree-mode acquireUseRelease. */
 interface AcquireResult {
@@ -335,13 +341,18 @@ export const WorktreeDockerSandboxFactory = {
           makeEffect: (info: SandboxInfo) => Effect.Effect<A, E, R | Sandbox>,
         ): Effect.Effect<
           WithSandboxResult<A>,
-          E | DockerError | WorktreeError,
+          E | DockerError | WorktreeError | SyncError,
           Exclude<R, Sandbox>
         > => {
           // Isolated providers: skip worktree, sync via git bundle
           if (sandboxProvider.tag === "isolated") {
             return Effect.acquireUseRelease(
-              startIsolatedProviderSandbox(sandboxProvider, hostRepoDir, env, copyPaths),
+              startIsolatedProviderSandbox(
+                sandboxProvider,
+                hostRepoDir,
+                env,
+                copyPaths,
+              ),
               // Use
               ({ sandboxLayer }) =>
                 makeEffect({}).pipe(
@@ -349,13 +360,7 @@ export const WorktreeDockerSandboxFactory = {
                 ) as Effect.Effect<A, E | DockerError, Exclude<R, Sandbox>>,
               // Release: sync commits back to host, then close
               ({ handle }) =>
-                Effect.tryPromise({
-                  try: () => syncOut(hostRepoDir, handle),
-                  catch: (e) =>
-                    new WorktreeError({
-                      message: `syncOut failed: ${e instanceof Error ? e.message : String(e)}`,
-                    }),
-                }).pipe(
+                syncOut(hostRepoDir, handle).pipe(
                   Effect.catchAll((e) =>
                     Effect.sync(() => {
                       console.error(
