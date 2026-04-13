@@ -68,14 +68,13 @@ const invokeAgent = (
       const execResult = yield* sandbox.execStreaming(
         provider.buildPrintCommand(prompt),
         (line) => {
+          resetIdleTimer();
           for (const parsed of provider.parseStreamLine(line)) {
             if (parsed.type === "text") {
-              resetIdleTimer();
               onText(parsed.text);
             } else if (parsed.type === "result") {
               resultText = parsed.result;
             } else if (parsed.type === "tool_call") {
-              resetIdleTimer();
               onToolCall(parsed.name, parsed.args);
             }
           }

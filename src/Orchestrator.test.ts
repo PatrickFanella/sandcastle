@@ -2076,6 +2076,78 @@ describe("Orchestrator Display integration", () => {
     expect(exitResult._tag).toBe("Success");
   }, 10_000);
 
+  it("resets the idle timer on unparsed stdout lines (no structured events)", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "orch-idle-raw-"));
+
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello", "initial commit");
+
+    // Mock agent: emits raw (non-JSON) stdout lines that don't parse into any
+    // structured event, then completes. With idleTimeoutSeconds=0.15 (150ms),
+    // the timer would fire at t=150ms if only parsed events reset it.
+    // The raw line at t=100ms should reset the timer to t=250ms, allowing
+    // the run to complete at t=200ms.
+    const { factoryLayer, sandboxRepoDir } = makeTestSandboxFactory(
+      hostDir,
+      (dir) => {
+        const fsLayer = makeLocalSandboxLayer(dir);
+        return Layer.succeed(Sandbox, {
+          exec: (command, options) =>
+            Effect.flatMap(Sandbox, (real) => real.exec(command, options)).pipe(
+              Effect.provide(fsLayer),
+            ),
+          execStreaming: (command, onStdoutLine, options) => {
+            if (command.startsWith("claude ")) {
+              return Effect.gen(function* () {
+                // Wait 100ms then emit a raw, unparsable line (should still reset idle timer)
+                yield* Effect.promise(
+                  () => new Promise((resolve) => setTimeout(resolve, 100)),
+                );
+                onStdoutLine("raw TUI output: rendering panel...");
+                // Wait another 100ms then emit the result so the run completes
+                yield* Effect.promise(
+                  () => new Promise((resolve) => setTimeout(resolve, 100)),
+                );
+                onStdoutLine(
+                  JSON.stringify({ type: "result", result: "done" }),
+                );
+                return { stdout: "", stderr: "", exitCode: 0 };
+              });
+            }
+            return Effect.flatMap(Sandbox, (real) =>
+              real.execStreaming(command, onStdoutLine, options),
+            ).pipe(Effect.provide(fsLayer));
+          },
+          copyIn: (hostPath, sandboxPath) =>
+            Effect.flatMap(Sandbox, (real) =>
+              real.copyIn(hostPath, sandboxPath),
+            ).pipe(Effect.provide(fsLayer)),
+          copyOut: (sandboxPath, hostPath) =>
+            Effect.flatMap(Sandbox, (real) =>
+              real.copyOut(sandboxPath, hostPath),
+            ).pipe(Effect.provide(fsLayer)),
+        });
+      },
+    );
+
+    const exitResult = await Effect.runPromise(
+      orchestrate({
+        provider: testProvider,
+        hostRepoDir: hostDir,
+        sandboxRepoDir,
+        iterations: 1,
+        prompt: "test",
+        idleTimeoutSeconds: 0.15, // 150ms — should be reset by raw stdout at t=100ms
+      }).pipe(
+        Effect.provide(Layer.merge(factoryLayer, testDisplayLayer)),
+        Effect.exit,
+      ),
+    );
+
+    // Should succeed because the raw stdout line at t=100ms resets the idle timer
+    expect(exitResult._tag).toBe("Success");
+  }, 10_000);
+
   it("logs periodic idle warnings every IDLE_WARNING_INTERVAL_MS of inactivity", async () => {
     const hostDir = await mkdtemp(join(tmpdir(), "orch-idle-warn-"));
 
