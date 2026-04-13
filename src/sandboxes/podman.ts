@@ -16,7 +16,9 @@ import {
   type BindMountSandboxHandle,
   type ExecResult,
 } from "../SandboxProvider.js";
-import { resolveUserMounts, type MountConfig } from "../MountConfig.js";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import type { MountConfig } from "../MountConfig.js";
 
 export interface PodmanOptions {
   /** Podman image name (default: derived from repo directory name). */
@@ -233,3 +235,31 @@ export const defaultImageName = (repoDir: string): string => {
   const sanitized = dirName.toLowerCase().replace(/[^a-z0-9_.-]/g, "-");
   return `sandcastle:${sanitized}`;
 };
+
+const expandTilde = (p: string): string => {
+  if (p === "~") return homedir();
+  if (p.startsWith("~/")) return homedir() + p.slice(1);
+  return p;
+};
+
+const resolveUserMounts = (
+  mounts: readonly MountConfig[],
+): Array<{ hostPath: string; sandboxPath: string; readonly?: boolean }> =>
+  mounts.map((m) => {
+    const resolvedHostPath = expandTilde(m.hostPath);
+
+    if (!existsSync(resolvedHostPath)) {
+      throw new Error(
+        `Mount hostPath does not exist: ${m.hostPath}` +
+          (m.hostPath !== resolvedHostPath
+            ? ` (resolved to ${resolvedHostPath})`
+            : ""),
+      );
+    }
+
+    return {
+      hostPath: resolvedHostPath,
+      sandboxPath: m.sandboxPath,
+      ...(m.readonly ? { readonly: true } : {}),
+    };
+  });
