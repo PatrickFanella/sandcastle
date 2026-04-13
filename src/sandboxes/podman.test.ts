@@ -28,6 +28,26 @@ describe("podman()", () => {
     expect(withBigZ.tag).toBe("bind-mount");
     expect(withFalse.tag).toBe("bind-mount");
   });
+
+  it("accepts a mounts option with valid paths", () => {
+    const provider = podman({
+      mounts: [{ hostPath: "~", sandboxPath: "/mnt/home" }],
+    });
+    expect(provider.tag).toBe("bind-mount");
+  });
+
+  it("throws at construction time if a mount hostPath does not exist", () => {
+    expect(() =>
+      podman({
+        mounts: [
+          {
+            hostPath: "/nonexistent/path/does/not/exist",
+            sandboxPath: "/mnt/cache",
+          },
+        ],
+      }),
+    ).toThrow("Mount hostPath does not exist");
+  });
 });
 
 describe("defaultImageName()", () => {

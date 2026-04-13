@@ -16,6 +16,7 @@ import {
   type BindMountSandboxHandle,
   type ExecResult,
 } from "../SandboxProvider.js";
+import { resolveUserMounts, type MountConfig } from "../MountConfig.js";
 
 export interface PodmanOptions {
   /** Podman image name (default: derived from repo directory name). */
@@ -28,6 +29,13 @@ export interface PodmanOptions {
    * - `false` — disable labeling entirely.
    */
   readonly selinuxLabel?: "z" | "Z" | false;
+  /**
+   * Additional host directories to bind-mount into the sandbox.
+   *
+   * Each entry specifies a `hostPath` (tilde-expanded) and `sandboxPath`.
+   * If `hostPath` does not exist, sandbox creation fails with a clear error.
+   */
+  readonly mounts?: readonly MountConfig[];
 }
 
 /**
@@ -41,6 +49,7 @@ export interface PodmanOptions {
 export const podman = (options?: PodmanOptions): SandboxProvider => {
   const configuredImageName = options?.imageName;
   const selinuxLabel = options?.selinuxLabel ?? "z";
+  const userMounts = options?.mounts ? resolveUserMounts(options.mounts) : [];
 
   return createBindMountSandboxProvider({
     name: "podman",
@@ -54,9 +63,10 @@ export const podman = (options?: PodmanOptions): SandboxProvider => {
           (m) => m.hostPath === createOptions.worktreePath,
         )?.sandboxPath ?? "/home/agent/workspace";
 
-      // Build volume mount strings with optional SELinux label
+      // Build volume mount strings with optional SELinux label (internal + user mounts)
       const labelSuffix = selinuxLabel ? `:${selinuxLabel}` : "";
-      const volumeMounts = createOptions.mounts.map((m) => {
+      const allMounts = [...createOptions.mounts, ...userMounts];
+      const volumeMounts = allMounts.map((m) => {
         const base = `${m.hostPath}:${m.sandboxPath}`;
         if (m.readonly) return `${base}:ro${labelSuffix}`;
         return `${base}${labelSuffix}`;

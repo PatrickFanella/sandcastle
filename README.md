@@ -90,9 +90,13 @@ const result = await run({
   agent: claudeCode("claude-opus-4-6", { effort: "high" }),
 
   // Sandbox provider — required. Import from "@ai-hero/sandcastle/sandboxes/docker".
-  // Provider-specific config (like imageName) lives inside the provider factory call.
+  // Provider-specific config (like imageName, mounts) lives inside the provider factory call.
   sandbox: docker({
     imageName: "sandcastle:local",
+    // Optional: mount host directories into the sandbox (e.g. package manager caches)
+    mounts: [
+      { hostPath: "~/.npm", sandboxPath: "/home/agent/.npm", readonly: true },
+    ],
   }),
 
   // Branch strategy — controls how the agent's changes relate to branches.

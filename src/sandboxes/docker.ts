@@ -22,10 +22,18 @@ import {
   type BindMountSandboxHandle,
   type ExecResult,
 } from "../SandboxProvider.js";
+import { resolveUserMounts, type MountConfig } from "../MountConfig.js";
 
 export interface DockerOptions {
   /** Docker image name (default: derived from repo directory name). */
   readonly imageName?: string;
+  /**
+   * Additional host directories to bind-mount into the sandbox.
+   *
+   * Each entry specifies a `hostPath` (tilde-expanded) and `sandboxPath`.
+   * If `hostPath` does not exist, sandbox creation fails with a clear error.
+   */
+  readonly mounts?: readonly MountConfig[];
 }
 
 /**
@@ -36,6 +44,7 @@ export interface DockerOptions {
  */
 export const docker = (options?: DockerOptions): SandboxProvider => {
   const configuredImageName = options?.imageName;
+  const userMounts = options?.mounts ? resolveUserMounts(options.mounts) : [];
 
   return createBindMountSandboxProvider({
     name: "docker",
@@ -49,8 +58,9 @@ export const docker = (options?: DockerOptions): SandboxProvider => {
           (m) => m.hostPath === createOptions.worktreePath,
         )?.sandboxPath ?? "/home/agent/workspace";
 
-      // Build volume mount strings
-      const volumeMounts = createOptions.mounts.map((m) => {
+      // Build volume mount strings (internal mounts + user-provided mounts)
+      const allMounts = [...createOptions.mounts, ...userMounts];
+      const volumeMounts = allMounts.map((m) => {
         const base = `${m.hostPath}:${m.sandboxPath}`;
         return m.readonly ? `${base}:ro` : base;
       });
