@@ -1,5 +1,28 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("node:child_process", async () => {
+  const actual =
+    await vi.importActual<typeof import("node:child_process")>(
+      "node:child_process",
+    );
+
+  return {
+    ...actual,
+    execFile: vi.fn(),
+    execFileSync: vi.fn(),
+    spawn: vi.fn(),
+  };
+});
+
+import { execFile } from "node:child_process";
+import { homedir } from "node:os";
 import { podman, defaultImageName } from "./podman.js";
+
+const mockExecFile = vi.mocked(execFile);
+
+afterEach(() => {
+  mockExecFile.mockReset();
+});
 
 describe("podman()", () => {
   it("returns a SandboxProvider with tag 'bind-mount' and name 'podman'", () => {
@@ -58,6 +81,36 @@ describe("podman()", () => {
   it("defaults env to empty object when not provided", () => {
     const provider = podman();
     expect(provider.env).toEqual({});
+  });
+
+  it("formats readonly SELinux mounts using podman volume syntax", async () => {
+    mockExecFile.mockImplementation((_command, args, callback: any) => {
+      callback(null, "", "");
+      return undefined as any;
+    });
+
+    const provider = podman({
+      selinuxLabel: "z",
+      mounts: [{ hostPath: "~", sandboxPath: "/mnt/home", readonly: true }],
+    });
+
+    const handle = await provider.create({
+      worktreePath: "/tmp/worktree",
+      hostRepoPath: "/tmp/repo",
+      mounts: [
+        { hostPath: "/tmp/worktree", sandboxPath: "/home/agent/workspace" },
+      ],
+      env: {},
+    });
+
+    const runArgs = mockExecFile.mock.calls.find(
+      ([, args]) => Array.isArray(args) && args[0] === "run",
+    )?.[1];
+
+    expect(runArgs).toContain("-v");
+    expect(runArgs).toContain(`${homedir()}:/mnt/home:ro,z`);
+
+    await handle.close();
   });
 });
 
