@@ -16,47 +16,47 @@ import { claudeCode, pi, codex, opencode } from "./AgentProvider.js";
 describe("buildInteractiveArgs with prompts", () => {
   it("claudeCode includes prompt as positional argument", () => {
     const provider = claudeCode("claude-opus-4-6");
-    const args = provider.buildInteractiveArgs("fix the bug");
+    const args = provider.buildInteractiveArgs!("fix the bug");
     expect(args[0]).toBe("claude");
     expect(args[args.length - 1]).toBe("fix the bug");
   });
 
   it("claudeCode omits prompt when empty string", () => {
     const provider = claudeCode("claude-opus-4-6");
-    const args = provider.buildInteractiveArgs("");
+    const args = provider.buildInteractiveArgs!("");
     expect(args[args.length - 1]).not.toBe("");
     expect(args).toContain("--model");
   });
 
   it("pi includes prompt as positional argument", () => {
     const provider = pi("claude-sonnet-4-6");
-    const args = provider.buildInteractiveArgs("fix the bug");
+    const args = provider.buildInteractiveArgs!("fix the bug");
     expect(args[0]).toBe("pi");
     expect(args[args.length - 1]).toBe("fix the bug");
   });
 
   it("pi omits prompt when empty string", () => {
     const provider = pi("claude-sonnet-4-6");
-    const args = provider.buildInteractiveArgs("");
+    const args = provider.buildInteractiveArgs!("");
     expect(args).not.toContain("");
   });
 
   it("codex includes prompt as positional argument", () => {
     const provider = codex("gpt-5.4-mini");
-    const args = provider.buildInteractiveArgs("fix the bug");
+    const args = provider.buildInteractiveArgs!("fix the bug");
     expect(args[0]).toBe("codex");
     expect(args[args.length - 1]).toBe("fix the bug");
   });
 
   it("codex omits prompt when empty string", () => {
     const provider = codex("gpt-5.4-mini");
-    const args = provider.buildInteractiveArgs("");
+    const args = provider.buildInteractiveArgs!("");
     expect(args).not.toContain("");
   });
 
   it("opencode passes prompt via -p flag", () => {
     const provider = opencode("opencode/big-pickle");
-    const args = provider.buildInteractiveArgs("fix the bug");
+    const args = provider.buildInteractiveArgs!("fix the bug");
     expect(args[0]).toBe("opencode");
     const pIdx = args.indexOf("-p");
     expect(pIdx).toBeGreaterThan(-1);
@@ -65,7 +65,7 @@ describe("buildInteractiveArgs with prompts", () => {
 
   it("opencode omits -p flag when prompt is empty", () => {
     const provider = opencode("opencode/big-pickle");
-    const args = provider.buildInteractiveArgs("");
+    const args = provider.buildInteractiveArgs!("");
     expect(args).not.toContain("-p");
   });
 });
