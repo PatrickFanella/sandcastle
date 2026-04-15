@@ -39,9 +39,9 @@ export interface SandboxLifecycleOptions {
   readonly sandboxRepoDir: string;
   readonly hooks?: SandboxHooks;
   readonly branch?: string;
-  /** Host-side path to the worktree directory. Required when sandboxRepoDir
+  /** Host-side path to the workspace directory. Required when sandboxRepoDir
    *  is a sandbox path that doesn't exist on the host (e.g. /home/agent/workspace). */
-  readonly hostWorktreePath?: string;
+  readonly hostWorkspacePath?: string;
   /** Called after agent work completes but before host-side git operations (merge, commit collection).
    *  For isolated providers, this syncs changes from the sandbox to the host worktree.
    *  For bind-mount providers, this is a no-op (filesystem is already shared). */
@@ -69,7 +69,7 @@ export const withSandboxLifecycle = <A>(
   Effect.gen(function* () {
     const sandbox = yield* Sandbox;
     const display = yield* Display;
-    const { hostRepoDir, sandboxRepoDir, hooks, branch, hostWorktreePath } =
+    const { hostRepoDir, sandboxRepoDir, hooks, branch, hostWorkspacePath } =
       options;
 
     // Without an explicit branch, record host's current branch for cherry-pick
@@ -149,10 +149,10 @@ export const withSandboxLifecycle = <A>(
 
     const targetBranch = branch ?? resolvedBranch;
 
-    // For host-side git operations in worktree mode, use hostWorktreePath
+    // For host-side git operations in worktree mode, use hostWorkspacePath
     // (the real path on the host) instead of sandboxRepoDir (which may be a sandbox path
     // like /home/agent/workspace that doesn't exist on the host).
-    const hostSideWorktreePath = hostWorktreePath ?? sandboxRepoDir;
+    const hostSideWorktreePath = hostWorkspacePath ?? sandboxRepoDir;
 
     // Record base HEAD from the host worktree (not the sandbox).
     // For bind-mount providers, these are the same. For isolated providers,

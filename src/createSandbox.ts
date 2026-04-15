@@ -36,7 +36,7 @@ import type {
 } from "./SandboxProvider.js";
 import { startSandbox } from "./startSandbox.js";
 import { syncOut } from "./syncOut.js";
-import * as WorktreeManager from "./WorktreeManager.js";
+import * as WorkspaceManager from "./WorkspaceManager.js";
 import { copyToWorkspace } from "./CopyToWorkspace.js";
 
 export interface CreateSandboxOptions {
@@ -119,15 +119,15 @@ export interface SandboxInteractiveResult {
 }
 
 export interface CloseResult {
-  /** Host path to the preserved worktree, set when the worktree had uncommitted changes. */
-  readonly preservedWorktreePath?: string;
+  /** Host path to the preserved workspace, set when the workspace had uncommitted changes. */
+  readonly preservedWorkspacePath?: string;
 }
 
 export interface Sandbox {
-  /** The branch the worktree is on. */
+  /** The branch the workspace is on. */
   readonly branch: string;
-  /** Host path to the worktree. */
-  readonly worktreePath: string;
+  /** Host path to the workspace. */
+  readonly workspacePath: string;
   /** Invoke an agent inside the existing sandbox. */
   run(options: SandboxRunOptions): Promise<SandboxRunResult>;
   /** Launch an interactive agent session inside the existing sandbox. */
@@ -154,11 +154,11 @@ export const createSandbox = async (
 
   // 1. Prune stale worktrees + create worktree on the explicit branch
   const worktreeInfo = await Effect.runPromise(
-    WorktreeManager.pruneStale(hostRepoDir)
+    WorkspaceManager.pruneStale(hostRepoDir)
       .pipe(Effect.catchAll(() => Effect.void))
       .pipe(
         Effect.andThen(
-          WorktreeManager.create(hostRepoDir, {
+          WorkspaceManager.create(hostRepoDir, {
             branch,
             throwOnDuplicateWorktree: options.throwOnDuplicateWorktree,
           }),
@@ -283,7 +283,7 @@ export const createSandbox = async (
 
   // 7. Build close function
   const doClose = async (): Promise<CloseResult> => {
-    if (closed) return { preservedWorktreePath: undefined };
+    if (closed) return { preservedWorkspacePath: undefined };
     closed = true;
 
     // Close provider handle
@@ -293,29 +293,29 @@ export const createSandbox = async (
 
     // Check for uncommitted changes
     const isDirty = await Effect.runPromise(
-      WorktreeManager.hasUncommittedChanges(worktreePath).pipe(
+      WorkspaceManager.hasUncommittedChanges(worktreePath).pipe(
         Effect.catchAll(() => Effect.succeed(false)),
       ),
     );
 
     if (isDirty) {
-      return { preservedWorktreePath: worktreePath };
+      return { preservedWorkspacePath: worktreePath };
     }
 
     // Remove worktree
     await Effect.runPromise(
-      WorktreeManager.remove(worktreePath).pipe(
+      WorkspaceManager.remove(worktreePath).pipe(
         Effect.catchAll(() => Effect.void),
       ),
     );
 
-    return { preservedWorktreePath: undefined };
+    return { preservedWorkspacePath: undefined };
   };
 
   // 8. Return the Sandbox handle
   const sandboxHandle: Sandbox = {
     branch,
-    worktreePath,
+    workspacePath: worktreePath,
 
     run: async (runOptions: SandboxRunOptions): Promise<SandboxRunResult> => {
       const {
@@ -335,7 +335,7 @@ export const createSandbox = async (
       // Resolve prompt arguments
       const userArgs = runOptions.promptArgs ?? {};
       const currentHostBranch = await Effect.runPromise(
-        WorktreeManager.getCurrentBranch(hostRepoDir),
+        WorkspaceManager.getCurrentBranch(hostRepoDir),
       );
 
       const displayRef = Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([]);
@@ -388,14 +388,14 @@ export const createSandbox = async (
       const reuseFactoryLayer = Layer.succeed(SandboxFactory, {
         withSandbox: (makeEffect) =>
           makeEffect({
-            hostWorktreePath: worktreePath,
+            hostWorkspacePath: worktreePath,
             sandboxWorkspacePath: sandboxRepoDir,
             applyToHost,
           }).pipe(
             Effect.provide(sandboxLayer),
             Effect.map((value) => ({
               value,
-              preservedWorktreePath: undefined,
+              preservedWorkspacePath: undefined,
             })),
           ) as any,
       });
@@ -460,7 +460,7 @@ export const createSandbox = async (
           // Resolve prompt arguments
           const userArgs = interactiveOptions.promptArgs ?? {};
           const currentHostBranch =
-            yield* WorktreeManager.getCurrentBranch(hostRepoDir);
+            yield* WorkspaceManager.getCurrentBranch(hostRepoDir);
 
           yield* validateNoBuiltInArgOverride(userArgs);
           const effectiveArgs = {
@@ -481,7 +481,7 @@ export const createSandbox = async (
               hostRepoDir,
               sandboxRepoDir,
               branch,
-              hostWorktreePath: worktreePath,
+              hostWorkspacePath: worktreePath,
               applyToHost,
             },
             (ctx) =>

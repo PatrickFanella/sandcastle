@@ -80,7 +80,7 @@ const startBindMountSandbox = (
         ...options.gitMounts,
       ];
       return options.provider.create({
-        worktreePath: options.worktreeOrRepoPath,
+        workspacePath: options.worktreeOrRepoPath,
         hostRepoPath: options.hostRepoDir,
         mounts,
         env: options.env,

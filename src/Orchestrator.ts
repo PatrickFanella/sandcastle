@@ -140,8 +140,8 @@ export interface OrchestrateResult {
   readonly stdout: string;
   readonly commits: { sha: string }[];
   readonly branch: string;
-  /** Host path to the preserved worktree from the last iteration, set when the worktree was left behind due to uncommitted changes on a successful run. */
-  readonly preservedWorktreePath?: string;
+  /** Host path to the preserved workspace from the last iteration, set when the workspace was left behind due to uncommitted changes on a successful run. */
+  readonly preservedWorkspacePath?: string;
 }
 
 export const orchestrate = (
@@ -175,14 +175,14 @@ export const orchestrate = (
       yield* display.status(label(`Iteration ${i}/${iterations}`), "info");
 
       const sandboxResult = yield* factory.withSandbox(
-        ({ hostWorktreePath, sandboxWorkspacePath, applyToHost }) =>
+        ({ hostWorkspacePath, sandboxWorkspacePath, applyToHost }) =>
           withSandboxLifecycle(
             {
               hostRepoDir,
               sandboxRepoDir: sandboxWorkspacePath,
               hooks,
               branch,
-              hostWorktreePath,
+              hostWorkspacePath,
               applyToHost,
             },
             (ctx) =>
@@ -245,7 +245,7 @@ export const orchestrate = (
       );
 
       const lifecycleResult = sandboxResult.value;
-      iterationPreservedPath = sandboxResult.preservedWorktreePath;
+      iterationPreservedPath = sandboxResult.preservedWorkspacePath;
 
       allCommits.push(...lifecycleResult.commits);
       allStdout += lifecycleResult.result.stdout;
@@ -262,7 +262,7 @@ export const orchestrate = (
           stdout: allStdout,
           commits: allCommits,
           branch: resolvedBranch,
-          preservedWorktreePath: iterationPreservedPath,
+          preservedWorkspacePath: iterationPreservedPath,
         };
       }
     }
@@ -277,7 +277,7 @@ export const orchestrate = (
       stdout: allStdout,
       commits: allCommits,
       branch: resolvedBranch,
-      preservedWorktreePath: iterationPreservedPath,
+      preservedWorkspacePath: iterationPreservedPath,
     };
   });
 };

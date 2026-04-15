@@ -53,8 +53,8 @@ export interface BindMountSandboxHandle {
 
 /** Options passed to a bind-mount provider's `create` function. */
 export interface BindMountCreateOptions {
-  /** Host-side path to the worktree directory. */
-  readonly worktreePath: string;
+  /** Host-side path to the workspace directory. */
+  readonly workspacePath: string;
   /** Host-side path to the original repo root. */
   readonly hostRepoPath: string;
   /** Volume mounts to apply (host:sandbox pairs). */

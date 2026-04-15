@@ -108,7 +108,7 @@ const makeTestSandboxFactory = (
         // Use: provide sandbox layer and run effect
         (_branchName) =>
           makeEffect({
-            hostWorktreePath: sandboxBaseDir,
+            hostWorkspacePath: sandboxBaseDir,
             sandboxWorkspacePath: sandboxBaseDir,
             applyToHost: () => Effect.void,
           }).pipe(Effect.provide(buildLayer(sandboxBaseDir))) as Effect.Effect<
@@ -127,7 +127,7 @@ const makeTestSandboxFactory = (
             } catch {}
           }),
       ).pipe(
-        Effect.map((value) => ({ value, preservedWorktreePath: undefined })),
+        Effect.map((value) => ({ value, preservedWorkspacePath: undefined })),
       ),
   });
 
@@ -732,7 +732,7 @@ describe("OrchestrateResult", () => {
           }),
           (_branchName) =>
             makeEffect({
-              hostWorktreePath: sandboxBaseDir,
+              hostWorkspacePath: sandboxBaseDir,
               sandboxWorkspacePath: sandboxBaseDir,
               applyToHost: () => Effect.void,
             }).pipe(
@@ -776,7 +776,7 @@ describe("OrchestrateResult", () => {
         ).pipe(
           Effect.map((value) => {
             // Check for uncommitted changes before cleanup
-            return { value, preservedWorktreePath: sandboxBaseDir };
+            return { value, preservedWorkspacePath: sandboxBaseDir };
           }),
         ),
     });
@@ -791,7 +791,7 @@ describe("OrchestrateResult", () => {
     );
 
     // Should have the preserved worktree path
-    expect(result.preservedWorktreePath).toBe(sandboxBaseDir);
+    expect(result.preservedWorkspacePath).toBe(sandboxBaseDir);
 
     // Commits should still be surfaced
     expect(result.commits).toHaveLength(1);

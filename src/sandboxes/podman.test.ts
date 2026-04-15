@@ -96,7 +96,7 @@ describe("podman()", () => {
     });
 
     const handle = await provider.create({
-      worktreePath: "/tmp/worktree",
+      workspacePath: "/tmp/worktree",
       hostRepoPath: "/tmp/repo",
       mounts: [
         { hostPath: "/tmp/worktree", sandboxPath: "/home/agent/workspace" },
@@ -125,7 +125,7 @@ describe("podman()", () => {
     });
 
     const handle = await provider.create({
-      worktreePath: "/tmp/worktree",
+      workspacePath: "/tmp/worktree",
       hostRepoPath: "/tmp/repo",
       mounts: [
         { hostPath: "/tmp/worktree", sandboxPath: "/home/agent/workspace" },
@@ -154,7 +154,7 @@ describe("podman()", () => {
     });
 
     const handle = await provider.create({
-      worktreePath: "/tmp/worktree",
+      workspacePath: "/tmp/worktree",
       hostRepoPath: "/tmp/repo",
       mounts: [
         { hostPath: "/tmp/worktree", sandboxPath: "/home/agent/workspace" },
@@ -183,7 +183,7 @@ describe("podman()", () => {
     });
 
     const handle = await provider.create({
-      worktreePath: "/tmp/worktree",
+      workspacePath: "/tmp/worktree",
       hostRepoPath: "/tmp/repo",
       mounts: [
         { hostPath: "/tmp/worktree", sandboxPath: "/home/agent/workspace" },
@@ -210,7 +210,7 @@ describe("podman()", () => {
 
     const provider = podman();
     const handle = await provider.create({
-      worktreePath: "/tmp/worktree",
+      workspacePath: "/tmp/worktree",
       hostRepoPath: "/tmp/repo",
       mounts: [
         { hostPath: "/tmp/worktree", sandboxPath: "/home/agent/workspace" },
@@ -235,7 +235,7 @@ describe("podman()", () => {
 
     const provider = podman({ userns: false });
     const handle = await provider.create({
-      worktreePath: "/tmp/worktree",
+      workspacePath: "/tmp/worktree",
       hostRepoPath: "/tmp/repo",
       mounts: [
         { hostPath: "/tmp/worktree", sandboxPath: "/home/agent/workspace" },
@@ -263,7 +263,7 @@ describe("podman()", () => {
 
     await expect(
       provider.create({
-        worktreePath: "/tmp/worktree",
+        workspacePath: "/tmp/worktree",
         hostRepoPath: "/tmp/repo",
         mounts: [
           { hostPath: "/tmp/worktree", sandboxPath: "/home/agent/workspace" },
@@ -290,7 +290,7 @@ describe("podman()", () => {
 
       await expect(
         provider.create({
-          worktreePath: "/tmp/worktree",
+          workspacePath: "/tmp/worktree",
           hostRepoPath: "/tmp/repo",
           mounts: [
             { hostPath: "/tmp/worktree", sandboxPath: "/home/agent/workspace" },
@@ -312,7 +312,7 @@ describe("podman()", () => {
 
     const provider = podman();
     const handle = await provider.create({
-      worktreePath: "/tmp/worktree",
+      workspacePath: "/tmp/worktree",
       hostRepoPath: "/tmp/repo",
       mounts: [
         { hostPath: "/tmp/worktree", sandboxPath: "/home/agent/workspace" },

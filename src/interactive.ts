@@ -24,8 +24,11 @@ import { mergeProviderEnv } from "./mergeProviderEnv.js";
 import { copyToWorkspace } from "./CopyToWorkspace.js";
 import { startSandbox } from "./startSandbox.js";
 import { syncOut } from "./syncOut.js";
-import * as WorktreeManager from "./WorktreeManager.js";
-import { generateTempBranchName, getCurrentBranch } from "./WorktreeManager.js";
+import * as WorkspaceManager from "./WorkspaceManager.js";
+import {
+  generateTempBranchName,
+  getCurrentBranch,
+} from "./WorkspaceManager.js";
 import {
   type PromptArgs,
   substitutePromptArgs,
@@ -64,8 +67,8 @@ export interface InteractiveResult {
   readonly commits: { sha: string }[];
   /** The branch name the agent worked on. */
   readonly branch: string;
-  /** Host path to the preserved worktree, if worktree had uncommitted changes. */
-  readonly preservedWorktreePath?: string;
+  /** Host path to the preserved workspace, if workspace had uncommitted changes. */
+  readonly preservedWorkspacePath?: string;
   /** Exit code of the interactive process. */
   readonly exitCode: number;
 }
@@ -201,16 +204,16 @@ export const interactive = async (
     });
 
     // 5. Create worktree (unless head mode)
-    let worktreeInfo: WorktreeManager.WorktreeInfo | undefined;
+    let worktreeInfo: WorkspaceManager.WorktreeInfo | undefined;
 
     if (!isHeadMode) {
       worktreeInfo = yield* d.taskLog("Creating worktree", () =>
-        WorktreeManager.pruneStale(hostRepoDir).pipe(
+        WorkspaceManager.pruneStale(hostRepoDir).pipe(
           Effect.catchAll(() => Effect.void),
           Effect.andThen(
             branch
-              ? WorktreeManager.create(hostRepoDir, { branch })
-              : WorktreeManager.create(hostRepoDir, { name: options.name }),
+              ? WorkspaceManager.create(hostRepoDir, { branch })
+              : WorkspaceManager.create(hostRepoDir, { name: options.name }),
           ),
         ),
       );
@@ -299,7 +302,7 @@ export const interactive = async (
           sandboxRepoDir: workspacePath,
           hooks,
           branch: lifecycleBranch,
-          hostWorktreePath: isHeadMode ? hostRepoDir : worktreeInfo?.path,
+          hostWorkspacePath: isHeadMode ? hostRepoDir : worktreeInfo?.path,
           applyToHost,
         },
         (ctx) =>
@@ -336,19 +339,19 @@ export const interactive = async (
       const exitCode = lifecycleResult.result;
 
       // Check for uncommitted changes (worktree mode only)
-      let preservedWorktreePath: string | undefined;
+      let preservedWorkspacePath: string | undefined;
       if (worktreeInfo) {
-        const hasUncommitted = yield* WorktreeManager.hasUncommittedChanges(
+        const hasUncommitted = yield* WorkspaceManager.hasUncommittedChanges(
           worktreeInfo.path,
         ).pipe(Effect.catchAll(() => Effect.succeed(false)));
         if (hasUncommitted) {
-          preservedWorktreePath = worktreeInfo.path;
+          preservedWorkspacePath = worktreeInfo.path;
         }
       }
 
       // Clean up worktree if not preserved
-      if (worktreeInfo && !preservedWorktreePath) {
-        yield* WorktreeManager.remove(worktreeInfo.path).pipe(
+      if (worktreeInfo && !preservedWorkspacePath) {
+        yield* WorkspaceManager.remove(worktreeInfo.path).pipe(
           Effect.catchAll(() => Effect.void),
         );
       }
@@ -358,22 +361,22 @@ export const interactive = async (
         Commits: String(lifecycleResult.commits.length),
         Branch: lifecycleResult.branch,
         "Exit code": String(exitCode),
-        ...(preservedWorktreePath
-          ? { "Preserved worktree": preservedWorktreePath }
+        ...(preservedWorkspacePath
+          ? { "Preserved worktree": preservedWorkspacePath }
           : {}),
       });
 
       return {
         commits: lifecycleResult.commits,
         branch: lifecycleResult.branch,
-        preservedWorktreePath,
+        preservedWorkspacePath,
         exitCode,
       };
     }).pipe(
       // On error, always clean up worktree (on success, handled above with preserve check)
       Effect.tapError(() =>
         worktreeInfo
-          ? WorktreeManager.remove(worktreeInfo.path).pipe(
+          ? WorkspaceManager.remove(worktreeInfo.path).pipe(
               Effect.catchAll(() => Effect.void),
             )
           : Effect.void,

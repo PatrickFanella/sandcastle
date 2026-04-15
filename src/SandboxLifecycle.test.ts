@@ -491,7 +491,7 @@ describe("withSandboxLifecycle (worktree mode)", () => {
           hostRepoDir: hostDir,
           sandboxRepoDir: containerPath,
 
-          hostWorktreePath: worktreeDir,
+          hostWorkspacePath: worktreeDir,
         },
         (ctx) =>
           Effect.gen(function* () {
@@ -781,7 +781,7 @@ describe("withSandboxLifecycle (worktree mode)", () => {
         {
           hostRepoDir: hostDir,
           sandboxRepoDir: containerPath,
-          hostWorktreePath: worktreeDir,
+          hostWorkspacePath: worktreeDir,
         },
         (ctx) =>
           Effect.gen(function* () {

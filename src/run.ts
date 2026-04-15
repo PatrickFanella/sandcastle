@@ -20,7 +20,10 @@ import { resolveEnv } from "./EnvResolver.js";
 import { formatErrorMessage } from "./ErrorHandler.js";
 import type { SandboxError } from "./errors.js";
 import { mergeProviderEnv } from "./mergeProviderEnv.js";
-import { generateTempBranchName, getCurrentBranch } from "./WorktreeManager.js";
+import {
+  generateTempBranchName,
+  getCurrentBranch,
+} from "./WorkspaceManager.js";
 import {
   type PromptArgs,
   substitutePromptArgs,
@@ -182,8 +185,8 @@ export interface RunResult {
   readonly branch: string;
   /** Path to the log file, if logging was drained to a file. */
   readonly logFilePath?: string;
-  /** Host path to the preserved worktree, set when the run succeeded but the worktree had uncommitted changes. */
-  readonly preservedWorktreePath?: string;
+  /** Host path to the preserved workspace, set when the run succeeded but the workspace had uncommitted changes. */
+  readonly preservedWorkspacePath?: string;
 }
 
 export const run = async (options: RunOptions): Promise<RunResult> => {

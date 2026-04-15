@@ -45,8 +45,8 @@ export class PromptError extends Data.TaggedError("PromptError")<{
 /** Agent invocation failed */
 export class AgentError extends Data.TaggedError("AgentError")<{
   readonly message: string;
-  /** Host path to the preserved worktree, set when the worktree was kept after failure. */
-  readonly preservedWorktreePath?: string;
+  /** Host path to the preserved workspace, set when the workspace was kept after failure. */
+  readonly preservedWorkspacePath?: string;
 }> {}
 
 /** .sandcastle/ config directory missing */
@@ -63,8 +63,8 @@ export class InitError extends Data.TaggedError("InitError")<{
 export class TimeoutError extends Data.TaggedError("TimeoutError")<{
   readonly message: string;
   readonly idleTimeoutSeconds: number;
-  /** Host path to the preserved worktree, set when the worktree was kept after failure. */
-  readonly preservedWorktreePath?: string;
+  /** Host path to the preserved workspace, set when the workspace was kept after failure. */
+  readonly preservedWorkspacePath?: string;
 }> {}
 
 /** Union of all sandbox-related errors */

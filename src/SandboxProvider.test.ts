@@ -33,7 +33,7 @@ describe("createBindMountSandboxProvider", () => {
     });
 
     const options = {
-      worktreePath: "/tmp/worktree",
+      workspacePath: "/tmp/worktree",
       hostRepoPath: "/home/user/repo",
       mounts: [{ hostPath: "/a", sandboxPath: "/b" }],
       env: { FOO: "bar" },

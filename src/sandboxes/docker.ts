@@ -66,7 +66,7 @@ export const docker = (options?: DockerOptions): SandboxProvider => {
 
       const workspacePath =
         createOptions.mounts.find(
-          (m) => m.hostPath === createOptions.worktreePath,
+          (m) => m.hostPath === createOptions.workspacePath,
         )?.sandboxPath ?? "/home/agent/workspace";
 
       // Build volume mount strings (internal mounts + user-provided mounts)

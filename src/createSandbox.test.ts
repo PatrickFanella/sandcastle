@@ -181,7 +181,7 @@ const makeMockIsolatedProvider = (
 };
 
 describe("createSandbox", () => {
-  it("creates a sandbox with branch and worktreePath properties", async () => {
+  it("creates a sandbox with branch and workspacePath properties", async () => {
     const hostDir = await mkdtemp(join(tmpdir(), "sandbox-test-"));
     await initRepo(hostDir);
     await commitFile(hostDir, "init.txt", "init", "initial commit");
@@ -197,8 +197,8 @@ describe("createSandbox", () => {
 
     try {
       expect(sandbox.branch).toBe("test-branch");
-      expect(sandbox.worktreePath).toContain(".sandcastle/worktrees");
-      expect(existsSync(sandbox.worktreePath)).toBe(true);
+      expect(sandbox.workspacePath).toContain(".sandcastle/worktrees");
+      expect(existsSync(sandbox.workspacePath)).toBe(true);
     } finally {
       await sandbox.close();
       await rm(hostDir, { recursive: true, force: true });
@@ -236,7 +236,7 @@ describe("createSandbox", () => {
     }
   });
 
-  it("sandbox.close() removes worktree when clean, returns no preservedWorktreePath", async () => {
+  it("sandbox.close() removes worktree when clean, returns no preservedWorkspacePath", async () => {
     const hostDir = await mkdtemp(join(tmpdir(), "sandbox-test-"));
     await initRepo(hostDir);
     await commitFile(hostDir, "init.txt", "init", "initial commit");
@@ -250,15 +250,15 @@ describe("createSandbox", () => {
       },
     });
 
-    const worktreePath = sandbox.worktreePath;
+    const worktreePath = sandbox.workspacePath;
     const closeResult = await sandbox.close();
 
-    expect(closeResult.preservedWorktreePath).toBeUndefined();
+    expect(closeResult.preservedWorkspacePath).toBeUndefined();
     expect(existsSync(worktreePath)).toBe(false);
     await rm(hostDir, { recursive: true, force: true });
   });
 
-  it("sandbox.close() preserves worktree when dirty, returns preservedWorktreePath", async () => {
+  it("sandbox.close() preserves worktree when dirty, returns preservedWorkspacePath", async () => {
     const hostDir = await mkdtemp(join(tmpdir(), "sandbox-test-"));
     await initRepo(hostDir);
     await commitFile(hostDir, "init.txt", "init", "initial commit");
@@ -273,15 +273,15 @@ describe("createSandbox", () => {
     });
 
     // Make the worktree dirty
-    await writeFile(join(sandbox.worktreePath, "dirty.txt"), "uncommitted");
+    await writeFile(join(sandbox.workspacePath, "dirty.txt"), "uncommitted");
 
     const closeResult = await sandbox.close();
 
-    expect(closeResult.preservedWorktreePath).toBe(sandbox.worktreePath);
-    expect(existsSync(sandbox.worktreePath)).toBe(true);
+    expect(closeResult.preservedWorkspacePath).toBe(sandbox.workspacePath);
+    expect(existsSync(sandbox.workspacePath)).toBe(true);
 
     // Clean up manually
-    await rm(sandbox.worktreePath, { recursive: true, force: true });
+    await rm(sandbox.workspacePath, { recursive: true, force: true });
     await execAsync(`git worktree prune`, { cwd: hostDir });
     await rm(hostDir, { recursive: true, force: true });
   });
@@ -301,7 +301,7 @@ describe("createSandbox", () => {
           buildSandboxLayer: (sandboxDir) => makeLocalSandboxLayer(sandboxDir),
         },
       });
-      worktreePath = sandbox.worktreePath;
+      worktreePath = sandbox.workspacePath;
       expect(existsSync(worktreePath)).toBe(true);
     }
     // After block exit, worktree should be cleaned up
@@ -392,8 +392,8 @@ describe("createSandbox", () => {
     const result1 = await sandbox.close();
     const result2 = await sandbox.close();
 
-    expect(result1.preservedWorktreePath).toBeUndefined();
-    expect(result2.preservedWorktreePath).toBeUndefined();
+    expect(result1.preservedWorkspacePath).toBeUndefined();
+    expect(result2.preservedWorkspacePath).toBeUndefined();
     await rm(hostDir, { recursive: true, force: true });
   });
 
@@ -512,7 +512,7 @@ describe("createSandbox", () => {
     try {
       // The hook wrote a file into the worktree (cwd is sandboxRepoDir = worktreePath in test mode)
       const hookOutput = await readFile(
-        join(sandbox.worktreePath, "hook-output.txt"),
+        join(sandbox.workspacePath, "hook-output.txt"),
         "utf-8",
       );
       expect(hookOutput.trim()).toBe("hook-ran");
@@ -543,7 +543,7 @@ describe("createSandbox", () => {
       name: "spy",
       create: async (opts) => {
         createCallCount++;
-        const workDir = opts.worktreePath;
+        const workDir = opts.workspacePath;
         return {
           workspacePath: workDir,
           exec: async (cmd, execOpts) => {
@@ -623,9 +623,9 @@ describe("createSandbox", () => {
     const spyProvider = createBindMountSandboxProvider({
       name: "spy-close",
       create: async (opts) => ({
-        workspacePath: opts.worktreePath,
+        workspacePath: opts.workspacePath,
         exec: async (cmd, execOpts) => {
-          const cwd = execOpts?.cwd ?? opts.worktreePath;
+          const cwd = execOpts?.cwd ?? opts.workspacePath;
           if (cmd.startsWith("claude ") && execOpts?.onLine) {
             const onLine = execOpts.onLine;
             const output = toStreamJson("mock");
@@ -702,7 +702,7 @@ describe("createSandbox", () => {
 
       // Verify file exists on host between runs
       const content = await readFile(
-        join(sandbox.worktreePath, "persistent-state.txt"),
+        join(sandbox.workspacePath, "persistent-state.txt"),
         "utf-8",
       );
       expect(content).toBe("from-run-1");
@@ -733,8 +733,8 @@ describe("createSandbox", () => {
 
     try {
       expect(sandbox.branch).toBe("test-isolated-branch");
-      expect(sandbox.worktreePath).toContain(".sandcastle/worktrees");
-      expect(existsSync(sandbox.worktreePath)).toBe(true);
+      expect(sandbox.workspacePath).toContain(".sandcastle/worktrees");
+      expect(existsSync(sandbox.workspacePath)).toBe(true);
     } finally {
       await sandbox.close();
       await rm(hostDir, { recursive: true, force: true });
@@ -765,7 +765,7 @@ describe("createSandbox", () => {
       // Verify the worktree exists and is on the right branch
       const { stdout: branch } = await execAsync(
         "git rev-parse --abbrev-ref HEAD",
-        { cwd: sandbox.worktreePath },
+        { cwd: sandbox.workspacePath },
       );
       expect(branch.trim()).toBe("test-isolated-commits");
     } finally {
@@ -786,10 +786,10 @@ describe("createSandbox", () => {
       _test: { hostRepoDir: hostDir },
     });
 
-    const worktreePath = sandbox.worktreePath;
+    const worktreePath = sandbox.workspacePath;
     const closeResult = await sandbox.close();
 
-    expect(closeResult.preservedWorktreePath).toBeUndefined();
+    expect(closeResult.preservedWorkspacePath).toBeUndefined();
     expect(existsSync(worktreePath)).toBe(false);
     await rm(hostDir, { recursive: true, force: true });
   });
@@ -854,9 +854,9 @@ describe("createSandbox", () => {
     const interactiveProvider = createBindMountSandboxProvider({
       name: "test-interactive",
       create: async (opts) => ({
-        workspacePath: opts.worktreePath,
+        workspacePath: opts.workspacePath,
         exec: async (cmd, execOpts) => {
-          const cwd = execOpts?.cwd ?? opts.worktreePath;
+          const cwd = execOpts?.cwd ?? opts.workspacePath;
           const result = await execAsync(cmd, { cwd });
           if (execOpts?.onLine) {
             for (const line of result.stdout.split("\n")) execOpts.onLine(line);
@@ -908,9 +908,9 @@ describe("createSandbox", () => {
       create: async (opts) => {
         createCallCount++;
         return {
-          workspacePath: opts.worktreePath,
+          workspacePath: opts.workspacePath,
           exec: async (cmd, execOpts) => {
-            const cwd = execOpts?.cwd ?? opts.worktreePath;
+            const cwd = execOpts?.cwd ?? opts.workspacePath;
             const result = await execAsync(cmd, { cwd });
             return {
               stdout: result.stdout,
@@ -956,9 +956,9 @@ describe("createSandbox", () => {
     const interactiveProvider = createBindMountSandboxProvider({
       name: "test-interactive-commits",
       create: async (opts) => ({
-        workspacePath: opts.worktreePath,
+        workspacePath: opts.workspacePath,
         exec: async (cmd, execOpts) => {
-          const cwd = execOpts?.cwd ?? opts.worktreePath;
+          const cwd = execOpts?.cwd ?? opts.workspacePath;
           const result = await execAsync(cmd, { cwd });
           return {
             stdout: result.stdout,
@@ -1010,9 +1010,9 @@ describe("createSandbox", () => {
     const noInteractiveProvider = createBindMountSandboxProvider({
       name: "test-no-interactive",
       create: async (opts) => ({
-        workspacePath: opts.worktreePath,
+        workspacePath: opts.workspacePath,
         exec: async (cmd, execOpts) => {
-          const cwd = execOpts?.cwd ?? opts.worktreePath;
+          const cwd = execOpts?.cwd ?? opts.workspacePath;
           const result = await execAsync(cmd, { cwd });
           return {
             stdout: result.stdout,
@@ -1053,9 +1053,9 @@ describe("createSandbox", () => {
     const interactiveProvider = createBindMountSandboxProvider({
       name: "test-interactive-args",
       create: async (opts) => ({
-        workspacePath: opts.worktreePath,
+        workspacePath: opts.workspacePath,
         exec: async (cmd, execOpts) => {
-          const cwd = execOpts?.cwd ?? opts.worktreePath;
+          const cwd = execOpts?.cwd ?? opts.workspacePath;
           const result = await execAsync(cmd, { cwd });
           return {
             stdout: result.stdout,
@@ -1113,7 +1113,7 @@ describe("createSandbox", () => {
 
     try {
       const copied = await readFile(
-        join(sandbox.worktreePath, "config.json"),
+        join(sandbox.workspacePath, "config.json"),
         "utf-8",
       );
       expect(JSON.parse(copied)).toEqual({ key: "value" });

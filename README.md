@@ -252,8 +252,8 @@ const sandbox = await createSandbox({
 });
 // ... run agents ...
 const closeResult = await sandbox.close();
-if (closeResult.preservedWorktreePath) {
-  console.log(`Worktree preserved at ${closeResult.preservedWorktreePath}`);
+if (closeResult.preservedWorkspacePath) {
+  console.log(`Workspace preserved at ${closeResult.preservedWorkspacePath}`);
 }
 ```
 
@@ -272,7 +272,7 @@ if (closeResult.preservedWorktreePath) {
 | Property / Method       | Type                                               | Description                                 |
 | ----------------------- | -------------------------------------------------- | ------------------------------------------- |
 | `branch`                | string                                             | The branch the sandbox is on                |
-| `worktreePath`          | string                                             | Host path to the worktree                   |
+| `workspacePath`         | string                                             | Host path to the workspace                  |
 | `run(options)`          | `(SandboxRunOptions) => Promise<SandboxRunResult>` | Invoke an agent inside the existing sandbox |
 | `close()`               | `() => Promise<CloseResult>`                       | Tear down the container and sandbox         |
 | `[Symbol.asyncDispose]` | `() => Promise<void>`                              | Auto teardown via `await using`             |
@@ -303,9 +303,9 @@ if (closeResult.preservedWorktreePath) {
 
 #### `CloseResult`
 
-| Field                   | Type    | Description                                                              |
-| ----------------------- | ------- | ------------------------------------------------------------------------ |
-| `preservedWorktreePath` | string? | Host path to the preserved worktree, set when it had uncommitted changes |
+| Field                    | Type    | Description                                                               |
+| ------------------------ | ------- | ------------------------------------------------------------------------- |
+| `preservedWorkspacePath` | string? | Host path to the preserved workspace, set when it had uncommitted changes |
 
 ## How it works
 
@@ -623,7 +623,7 @@ const localProcess = () =>
     create: async (
       options: BindMountCreateOptions,
     ): Promise<BindMountSandboxHandle> => {
-      const workspacePath = options.worktreePath;
+      const workspacePath = options.workspacePath;
 
       return {
         workspacePath,

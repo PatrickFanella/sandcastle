@@ -80,7 +80,7 @@ export const podman = (options?: PodmanOptions): SandboxProvider => {
 
       const workspacePath =
         createOptions.mounts.find(
-          (m) => m.hostPath === createOptions.worktreePath,
+          (m) => m.hostPath === createOptions.workspacePath,
         )?.sandboxPath ?? "/home/agent/workspace";
 
       // Build volume mount strings with optional SELinux label (internal + user mounts)

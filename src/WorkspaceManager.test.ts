@@ -14,7 +14,7 @@ import {
   pruneStale,
   remove,
   sanitizeName,
-} from "./WorktreeManager.js";
+} from "./WorkspaceManager.js";
 
 const execAsync = promisify(exec);
 
@@ -108,7 +108,7 @@ describe("generateTempBranchName", () => {
   });
 });
 
-describe("WorktreeManager.create", () => {
+describe("WorkspaceManager.create", () => {
   it("creates a worktree at .sandcastle/worktrees/<name>/", async () => {
     const repoDir = await setupRepo();
     const { path } = await run(create(repoDir));
@@ -296,7 +296,7 @@ describe("WorktreeManager.create", () => {
   });
 });
 
-describe("WorktreeManager.remove", () => {
+describe("WorkspaceManager.remove", () => {
   it("removes the worktree directory", async () => {
     const repoDir = await setupRepo();
     const { path } = await run(create(repoDir));
@@ -320,7 +320,7 @@ describe("WorktreeManager.remove", () => {
   });
 });
 
-describe("WorktreeManager.pruneStale", () => {
+describe("WorkspaceManager.pruneStale", () => {
   it("runs git worktree prune to clean up stale metadata", async () => {
     const repoDir = await setupRepo();
     const { path } = await run(create(repoDir));
@@ -370,7 +370,7 @@ describe("WorktreeManager.pruneStale", () => {
   });
 });
 
-describe("WorktreeManager.hasUncommittedChanges", () => {
+describe("WorkspaceManager.hasUncommittedChanges", () => {
   it("returns false for a clean worktree", async () => {
     const repoDir = await setupRepo();
     const { path } = await run(create(repoDir));

@@ -119,10 +119,10 @@ describe("interactive()", () => {
       name: "test-interactive",
       create: async (options) => {
         const handle: BindMountSandboxHandle = {
-          workspacePath: options.worktreePath,
+          workspacePath: options.workspacePath,
           exec: async (command) => {
             const result = execSync(command, {
-              cwd: options.worktreePath,
+              cwd: options.workspacePath,
               encoding: "utf-8",
               stdio: ["pipe", "pipe", "pipe"],
             });
@@ -212,10 +212,10 @@ describe("interactive()", () => {
     const provider = createBindMountSandboxProvider({
       name: "no-interactive",
       create: async (options) => ({
-        workspacePath: options.worktreePath,
+        workspacePath: options.workspacePath,
         exec: async (command) => {
           const result = execSync(command, {
-            cwd: options.worktreePath,
+            cwd: options.workspacePath,
             encoding: "utf-8",
             stdio: ["pipe", "pipe", "pipe"],
           });
