@@ -140,6 +140,396 @@ export interface Sandbox {
   [Symbol.asyncDispose](): Promise<void>;
 }
 
+/** @internal Context for building Sandbox handle methods. */
+interface SandboxHandleContext {
+  readonly branch: string;
+  readonly worktreePath: string;
+  readonly hostRepoDir: string;
+  readonly sandboxRepoDir: string;
+  readonly sandboxLayer: Layer.Layer<SandboxTag>;
+  readonly providerHandle:
+    | BindMountSandboxHandle
+    | IsolatedSandboxHandle
+    | undefined;
+  readonly applyToHost: () => Effect.Effect<void, any>;
+}
+
+/**
+ * @internal Builds a Sandbox handle with run() and interactive() methods.
+ * The close callback controls teardown behavior — top-level createSandbox()
+ * cleans up both container and worktree, while workspace-backed sandboxes
+ * only tear down the container.
+ */
+const buildSandboxHandle = (
+  ctx: SandboxHandleContext,
+  close: () => Promise<CloseResult>,
+): Sandbox => {
+  const {
+    branch,
+    worktreePath,
+    hostRepoDir,
+    sandboxRepoDir,
+    sandboxLayer,
+    providerHandle,
+    applyToHost,
+  } = ctx;
+
+  const sandboxHandle: Sandbox = {
+    branch,
+    workspacePath: worktreePath,
+
+    run: async (runOptions: SandboxRunOptions): Promise<SandboxRunResult> => {
+      const {
+        agent: provider,
+        prompt,
+        promptFile,
+        maxIterations = 1,
+      } = runOptions;
+
+      const rawPrompt = await Effect.runPromise(
+        resolvePrompt({ prompt, promptFile }).pipe(
+          Effect.provide(NodeContext.layer),
+        ),
+      );
+
+      const userArgs = runOptions.promptArgs ?? {};
+      const currentHostBranch = await Effect.runPromise(
+        WorkspaceManager.getCurrentBranch(hostRepoDir),
+      );
+
+      const displayRef = Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([]);
+      const silentDisplayLayer = SilentDisplay.layer(displayRef);
+
+      const resolvedPrompt = await Effect.runPromise(
+        Effect.gen(function* () {
+          yield* validateNoBuiltInArgOverride(userArgs);
+          const effectiveArgs = {
+            SOURCE_BRANCH: branch,
+            TARGET_BRANCH: currentHostBranch,
+            ...userArgs,
+          };
+          const builtInArgKeysSet = new Set<string>(BUILT_IN_PROMPT_ARG_KEYS);
+          return yield* substitutePromptArgs(
+            rawPrompt,
+            effectiveArgs,
+            builtInArgKeysSet,
+          );
+        }).pipe(Effect.provide(silentDisplayLayer)),
+      );
+
+      const resolvedLogging: LoggingOption = runOptions.logging ?? {
+        type: "file",
+        path: join(
+          hostRepoDir,
+          ".sandcastle",
+          "logs",
+          buildLogFilename(branch, undefined, runOptions.name),
+        ),
+      };
+
+      const runDisplayLayer =
+        resolvedLogging.type === "file"
+          ? (() => {
+              printFileDisplayStartup({
+                logPath: resolvedLogging.path,
+                agentName: runOptions.name,
+                branch,
+              });
+              return Layer.provide(
+                FileDisplay.layer(resolvedLogging.path),
+                NodeFileSystem.layer,
+              );
+            })()
+          : silentDisplayLayer;
+
+      const reuseFactoryLayer = Layer.succeed(SandboxFactory, {
+        withSandbox: (makeEffect) =>
+          makeEffect({
+            hostWorkspacePath: worktreePath,
+            sandboxWorkspacePath: sandboxRepoDir,
+            applyToHost,
+          }).pipe(
+            Effect.provide(sandboxLayer),
+            Effect.map((value) => ({
+              value,
+              preservedWorkspacePath: undefined,
+            })),
+          ) as any,
+      });
+
+      const runLayer = Layer.merge(reuseFactoryLayer, runDisplayLayer);
+
+      const result = await Effect.runPromise(
+        Effect.gen(function* () {
+          const display = yield* Display;
+          yield* display.intro(runOptions.name ?? "sandcastle");
+
+          return yield* orchestrate({
+            hostRepoDir,
+            iterations: maxIterations,
+            prompt: resolvedPrompt,
+            branch,
+            provider,
+            completionSignal: runOptions.completionSignal,
+            idleTimeoutSeconds: runOptions.idleTimeoutSeconds,
+            name: runOptions.name,
+          });
+        }).pipe(Effect.provide(runLayer)),
+      );
+
+      return {
+        iterationsRun: result.iterationsRun,
+        completionSignal: result.completionSignal,
+        stdout: result.stdout,
+        commits: result.commits,
+        logFilePath:
+          resolvedLogging.type === "file" ? resolvedLogging.path : undefined,
+      };
+    },
+
+    interactive: async (
+      interactiveOptions: SandboxInteractiveOptions,
+    ): Promise<SandboxInteractiveResult> => {
+      const { agent: provider, prompt, promptFile } = interactiveOptions;
+
+      if (!provider.buildInteractiveArgs) {
+        throw new Error(
+          `Agent provider "${provider.name}" does not support buildInteractiveArgs, required for interactive sessions.`,
+        );
+      }
+
+      if (!providerHandle?.interactiveExec) {
+        throw new Error(
+          `Sandbox provider does not support interactiveExec. ` +
+            `The provider must implement the optional interactiveExec method to use interactive().`,
+        );
+      }
+      const interactiveExecFn =
+        providerHandle.interactiveExec.bind(providerHandle);
+
+      const lifecycleResult = await Effect.runPromise(
+        Effect.gen(function* () {
+          const rawPrompt = yield* resolvePrompt({ prompt, promptFile });
+
+          const userArgs = interactiveOptions.promptArgs ?? {};
+          const currentHostBranch =
+            yield* WorkspaceManager.getCurrentBranch(hostRepoDir);
+
+          yield* validateNoBuiltInArgOverride(userArgs);
+          const effectiveArgs = {
+            SOURCE_BRANCH: branch,
+            TARGET_BRANCH: currentHostBranch,
+            ...userArgs,
+          };
+          const builtInArgKeysSet = new Set<string>(BUILT_IN_PROMPT_ARG_KEYS);
+          const resolvedPrompt = yield* substitutePromptArgs(
+            rawPrompt,
+            effectiveArgs,
+            builtInArgKeysSet,
+          );
+
+          return yield* withSandboxLifecycle(
+            {
+              hostRepoDir,
+              sandboxRepoDir,
+              branch,
+              hostWorkspacePath: worktreePath,
+              applyToHost,
+            },
+            (ctx) =>
+              Effect.gen(function* () {
+                const fullPrompt = yield* preprocessPrompt(
+                  resolvedPrompt,
+                  ctx.sandbox,
+                  ctx.sandboxRepoDir,
+                );
+
+                const interactiveArgs = provider.buildInteractiveArgs!({
+                  prompt: fullPrompt,
+                  dangerouslySkipPermissions: true,
+                });
+                const result = yield* Effect.promise(() =>
+                  interactiveExecFn(interactiveArgs, {
+                    stdin: process.stdin,
+                    stdout: process.stdout,
+                    stderr: process.stderr,
+                    cwd: sandboxRepoDir,
+                  }),
+                );
+
+                return result.exitCode;
+              }),
+          );
+        }).pipe(
+          Effect.provide(sandboxLayer),
+          Effect.provide(ClackDisplay.layer),
+          Effect.provide(NodeContext.layer),
+        ),
+      );
+
+      return {
+        commits: lifecycleResult.commits,
+        exitCode: lifecycleResult.result,
+      };
+    },
+
+    close: async (): Promise<CloseResult> => close(),
+
+    [Symbol.asyncDispose]: async (): Promise<void> => {
+      await sandboxHandle.close();
+    },
+  };
+
+  return sandboxHandle;
+};
+
+/** @internal Options for createSandboxFromWorkspace — used by workspace.createSandbox(). */
+export interface CreateSandboxFromWorkspaceOptions {
+  readonly branch: string;
+  readonly worktreePath: string;
+  readonly hostRepoDir: string;
+  readonly sandbox: SandboxProvider;
+  readonly hooks?: {
+    readonly onSandboxReady?: ReadonlyArray<{
+      command: string;
+      sudo?: boolean;
+    }>;
+  };
+  readonly copyToWorkspace?: string[];
+  readonly _test?: {
+    readonly buildSandboxLayer?: (
+      sandboxDir: string,
+    ) => Layer.Layer<SandboxTag>;
+  };
+}
+
+/**
+ * @internal Creates a sandbox backed by an existing workspace worktree.
+ * Split ownership: close() tears down the container only, leaving the worktree intact.
+ * Used by Workspace.createSandbox().
+ */
+export const createSandboxFromWorkspace = async (
+  options: CreateSandboxFromWorkspaceOptions,
+): Promise<Sandbox> => {
+  const { branch, worktreePath, hostRepoDir } = options;
+  const isTestMode = !!options._test?.buildSandboxLayer;
+
+  // 1. Copy files if requested (bind-mount only)
+  if (
+    options.copyToWorkspace &&
+    options.copyToWorkspace.length > 0 &&
+    options.sandbox.tag !== "isolated"
+  ) {
+    await Effect.runPromise(
+      copyToWorkspace(options.copyToWorkspace, hostRepoDir, worktreePath),
+    );
+  }
+
+  // 2. Start sandbox via provider or local sandbox layer (test mode)
+  let providerHandle:
+    | BindMountSandboxHandle
+    | IsolatedSandboxHandle
+    | undefined;
+  let sandboxLayer: Layer.Layer<SandboxTag>;
+  let sandboxRepoDir: string;
+  const isIsolated = options.sandbox.tag === "isolated";
+
+  if (isTestMode) {
+    sandboxLayer = options._test!.buildSandboxLayer!(worktreePath);
+    sandboxRepoDir = worktreePath;
+  } else {
+    const resolvedEnv = await Effect.runPromise(
+      resolveEnv(hostRepoDir).pipe(Effect.provide(NodeContext.layer)),
+    );
+    const env = mergeProviderEnv({
+      resolvedEnv,
+      agentProviderEnv: {},
+      sandboxProviderEnv: options.sandbox.env,
+    });
+
+    const provider = options.sandbox;
+
+    let startEffect;
+    if (provider.tag === "isolated") {
+      startEffect = startSandbox({
+        provider,
+        hostRepoDir: worktreePath,
+        env,
+        copyPaths: options.copyToWorkspace,
+      });
+    } else {
+      startEffect = resolveGitMounts(join(hostRepoDir, ".git")).pipe(
+        Effect.provide(NodeFileSystem.layer),
+        Effect.catchAll(() => Effect.succeed([])),
+        Effect.flatMap((gitMounts) =>
+          startSandbox({
+            provider,
+            hostRepoDir,
+            env,
+            worktreeOrRepoPath: worktreePath,
+            gitMounts,
+            workspaceDir: SANDBOX_WORKSPACE_DIR,
+          }),
+        ),
+      );
+    }
+
+    const startResult = await Effect.runPromise(startEffect);
+
+    providerHandle = startResult.handle;
+    sandboxLayer = startResult.sandboxLayer;
+    sandboxRepoDir = startResult.workspacePath;
+  }
+
+  // 3. Run onSandboxReady hooks
+  if (options.hooks?.onSandboxReady?.length) {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const sandbox = yield* SandboxTag;
+        yield* sandbox.exec(
+          `git config --global --add safe.directory "${sandboxRepoDir}"`,
+        );
+        yield* Effect.all(
+          options.hooks!.onSandboxReady!.map((hook) =>
+            sandbox.exec(hook.command, {
+              cwd: sandboxRepoDir,
+              sudo: hook.sudo,
+            }),
+          ),
+          { concurrency: "unbounded" },
+        );
+      }).pipe(Effect.provide(sandboxLayer)),
+    );
+  }
+
+  // 4. Build applyToHost callback
+  const applyToHost =
+    isIsolated && providerHandle
+      ? () => syncOut(worktreePath, providerHandle as IsolatedSandboxHandle)
+      : () => Effect.void;
+
+  // 5. Build and return sandbox handle — container-only close (workspace owns worktree)
+  let closed = false;
+
+  return buildSandboxHandle(
+    {
+      branch,
+      worktreePath,
+      hostRepoDir,
+      sandboxRepoDir,
+      sandboxLayer,
+      providerHandle,
+      applyToHost,
+    },
+    async () => {
+      if (closed) return { preservedWorkspacePath: undefined };
+      closed = true;
+      if (providerHandle) await providerHandle.close();
+      return { preservedWorkspacePath: undefined };
+    },
+  );
+};
+
 /**
  * Eagerly creates a git worktree on the provided explicit branch and starts
  * a sandbox with the worktree bind-mounted. Returns a Sandbox handle that
@@ -313,226 +703,20 @@ export const createSandbox = async (
   };
 
   // 8. Return the Sandbox handle
-  const sandboxHandle: Sandbox = {
-    branch,
-    workspacePath: worktreePath,
-
-    run: async (runOptions: SandboxRunOptions): Promise<SandboxRunResult> => {
-      const {
-        agent: provider,
-        prompt,
-        promptFile,
-        maxIterations = 1,
-      } = runOptions;
-
-      // Resolve prompt
-      const rawPrompt = await Effect.runPromise(
-        resolvePrompt({ prompt, promptFile }).pipe(
-          Effect.provide(NodeContext.layer),
-        ),
-      );
-
-      // Resolve prompt arguments
-      const userArgs = runOptions.promptArgs ?? {};
-      const currentHostBranch = await Effect.runPromise(
-        WorkspaceManager.getCurrentBranch(hostRepoDir),
-      );
-
-      const displayRef = Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([]);
-      const silentDisplayLayer = SilentDisplay.layer(displayRef);
-
-      const resolvedPrompt = await Effect.runPromise(
-        Effect.gen(function* () {
-          yield* validateNoBuiltInArgOverride(userArgs);
-          const effectiveArgs = {
-            SOURCE_BRANCH: branch,
-            TARGET_BRANCH: currentHostBranch,
-            ...userArgs,
-          };
-          const builtInArgKeysSet = new Set<string>(BUILT_IN_PROMPT_ARG_KEYS);
-          return yield* substitutePromptArgs(
-            rawPrompt,
-            effectiveArgs,
-            builtInArgKeysSet,
-          );
-        }).pipe(Effect.provide(silentDisplayLayer)),
-      );
-
-      // Resolve logging
-      const resolvedLogging: LoggingOption = runOptions.logging ?? {
-        type: "file",
-        path: join(
-          hostRepoDir,
-          ".sandcastle",
-          "logs",
-          buildLogFilename(branch, undefined, runOptions.name),
-        ),
-      };
-
-      const runDisplayLayer =
-        resolvedLogging.type === "file"
-          ? (() => {
-              printFileDisplayStartup({
-                logPath: resolvedLogging.path,
-                agentName: runOptions.name,
-                branch,
-              });
-              return Layer.provide(
-                FileDisplay.layer(resolvedLogging.path),
-                NodeFileSystem.layer,
-              );
-            })()
-          : silentDisplayLayer;
-
-      // Build a SandboxFactory that reuses the existing sandbox
-      const reuseFactoryLayer = Layer.succeed(SandboxFactory, {
-        withSandbox: (makeEffect) =>
-          makeEffect({
-            hostWorkspacePath: worktreePath,
-            sandboxWorkspacePath: sandboxRepoDir,
-            applyToHost,
-          }).pipe(
-            Effect.provide(sandboxLayer),
-            Effect.map((value) => ({
-              value,
-              preservedWorkspacePath: undefined,
-            })),
-          ) as any,
-      });
-
-      const runLayer = Layer.merge(reuseFactoryLayer, runDisplayLayer);
-
-      const result = await Effect.runPromise(
-        Effect.gen(function* () {
-          const display = yield* Display;
-          yield* display.intro(runOptions.name ?? "sandcastle");
-
-          return yield* orchestrate({
-            hostRepoDir,
-            iterations: maxIterations,
-            prompt: resolvedPrompt,
-            branch,
-            provider,
-            completionSignal: runOptions.completionSignal,
-            idleTimeoutSeconds: runOptions.idleTimeoutSeconds,
-            name: runOptions.name,
-          });
-        }).pipe(Effect.provide(runLayer)),
-      );
-
-      return {
-        iterationsRun: result.iterationsRun,
-        completionSignal: result.completionSignal,
-        stdout: result.stdout,
-        commits: result.commits,
-        logFilePath:
-          resolvedLogging.type === "file" ? resolvedLogging.path : undefined,
-      };
+  return buildSandboxHandle(
+    {
+      branch,
+      worktreePath,
+      hostRepoDir,
+      sandboxRepoDir,
+      sandboxLayer,
+      providerHandle,
+      applyToHost,
     },
-
-    interactive: async (
-      interactiveOptions: SandboxInteractiveOptions,
-    ): Promise<SandboxInteractiveResult> => {
-      const { agent: provider, prompt, promptFile } = interactiveOptions;
-
-      // Validate buildInteractiveArgs is available
-      if (!provider.buildInteractiveArgs) {
-        throw new Error(
-          `Agent provider "${provider.name}" does not support buildInteractiveArgs, required for interactive sessions.`,
-        );
-      }
-
-      // Validate interactiveExec is available on the handle
-      if (!providerHandle?.interactiveExec) {
-        throw new Error(
-          `Sandbox provider does not support interactiveExec. ` +
-            `The provider must implement the optional interactiveExec method to use interactive().`,
-        );
-      }
-      const interactiveExecFn =
-        providerHandle.interactiveExec.bind(providerHandle);
-
-      const lifecycleResult = await Effect.runPromise(
-        Effect.gen(function* () {
-          // Resolve prompt
-          const rawPrompt = yield* resolvePrompt({ prompt, promptFile });
-
-          // Resolve prompt arguments
-          const userArgs = interactiveOptions.promptArgs ?? {};
-          const currentHostBranch =
-            yield* WorkspaceManager.getCurrentBranch(hostRepoDir);
-
-          yield* validateNoBuiltInArgOverride(userArgs);
-          const effectiveArgs = {
-            SOURCE_BRANCH: branch,
-            TARGET_BRANCH: currentHostBranch,
-            ...userArgs,
-          };
-          const builtInArgKeysSet = new Set<string>(BUILT_IN_PROMPT_ARG_KEYS);
-          const resolvedPrompt = yield* substitutePromptArgs(
-            rawPrompt,
-            effectiveArgs,
-            builtInArgKeysSet,
-          );
-
-          // Run interactive session using withSandboxLifecycle for commit collection
-          return yield* withSandboxLifecycle(
-            {
-              hostRepoDir,
-              sandboxRepoDir,
-              branch,
-              hostWorkspacePath: worktreePath,
-              applyToHost,
-            },
-            (ctx) =>
-              Effect.gen(function* () {
-                // Preprocess prompt (expand !`command` shell expressions inside sandbox)
-                const fullPrompt = yield* preprocessPrompt(
-                  resolvedPrompt,
-                  ctx.sandbox,
-                  ctx.sandboxRepoDir,
-                );
-
-                // Build interactive args and run the session
-                const interactiveArgs = provider.buildInteractiveArgs!({
-                  prompt: fullPrompt,
-                  dangerouslySkipPermissions: true,
-                });
-                const result = yield* Effect.promise(() =>
-                  interactiveExecFn(interactiveArgs, {
-                    stdin: process.stdin,
-                    stdout: process.stdout,
-                    stderr: process.stderr,
-                    cwd: sandboxRepoDir,
-                  }),
-                );
-
-                return result.exitCode;
-              }),
-          );
-        }).pipe(
-          Effect.provide(sandboxLayer),
-          Effect.provide(ClackDisplay.layer),
-          Effect.provide(NodeContext.layer),
-        ),
-      );
-
-      return {
-        commits: lifecycleResult.commits,
-        exitCode: lifecycleResult.result,
-      };
-    },
-
-    close: async (): Promise<CloseResult> => {
+    async () => {
       process.removeListener("SIGINT", onSignal);
       process.removeListener("SIGTERM", onSignal);
       return doClose();
     },
-
-    [Symbol.asyncDispose]: async (): Promise<void> => {
-      await sandboxHandle.close();
-    },
-  };
-
-  return sandboxHandle;
+  );
 };

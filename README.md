@@ -338,9 +338,24 @@ const result = await ws.run({
   maxIterations: 3,
 });
 console.log(result.commits); // commits made during the run
+
+// Create a long-lived sandbox from the workspace
+import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
+
+await using sandbox = await ws.createSandbox({
+  sandbox: docker(),
+  hooks: { onSandboxReady: [{ command: "npm install" }] },
+});
+
+// sandbox.close() tears down the container only — the worktree stays
+await sandbox.close();
+
+// ws.close() cleans up the worktree
 ```
 
-`ws.close()` checks for uncommitted changes: if the worktree is dirty, it's preserved on disk; if clean, it's removed. `await using` calls `close()` automatically. The workspace persists after `run()` and `interactive()` complete, so you can hand it to another agent or inspect it.
+`ws.close()` checks for uncommitted changes: if the worktree is dirty, it's preserved on disk; if clean, it's removed. `await using` calls `close()` automatically. The workspace persists after `run()`, `interactive()`, and `createSandbox()` complete, so you can hand it to another agent or inspect it.
+
+**Split ownership**: When a sandbox is created via `ws.createSandbox()`, `sandbox.close()` tears down the container only — the worktree remains. `ws.close()` is responsible for worktree cleanup. This differs from the top-level `createSandbox()`, where `sandbox.close()` owns both container and worktree.
 
 #### `CreateWorkspaceOptions`
 
@@ -351,14 +366,15 @@ console.log(result.commits); // commits made during the run
 
 #### `Workspace`
 
-| Property / Method       | Type                                                                   | Description                                          |
-| ----------------------- | ---------------------------------------------------------------------- | ---------------------------------------------------- |
-| `branch`                | string                                                                 | The branch the workspace is on                       |
-| `workspacePath`         | string                                                                 | Host path to the workspace                           |
-| `run(options)`          | `(options: WorkspaceRunOptions) => Promise<WorkspaceRunResult>`        | Run an AFK agent in the workspace (sandbox required) |
-| `interactive(options)`  | `(options: WorkspaceInteractiveOptions) => Promise<InteractiveResult>` | Run an interactive agent session in the workspace    |
-| `close()`               | `() => Promise<CloseResult>`                                           | Clean up the worktree (preserves if dirty)           |
-| `[Symbol.asyncDispose]` | `() => Promise<void>`                                                  | Auto cleanup via `await using`                       |
+| Property / Method        | Type                                                                   | Description                                                     |
+| ------------------------ | ---------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `branch`                 | string                                                                 | The branch the workspace is on                                  |
+| `workspacePath`          | string                                                                 | Host path to the workspace                                      |
+| `run(options)`           | `(options: WorkspaceRunOptions) => Promise<WorkspaceRunResult>`        | Run an AFK agent in the workspace (sandbox required)            |
+| `interactive(options)`   | `(options: WorkspaceInteractiveOptions) => Promise<InteractiveResult>` | Run an interactive agent session in the workspace               |
+| `createSandbox(options)` | `(options: WorkspaceCreateSandboxOptions) => Promise<Sandbox>`         | Create a long-lived sandbox backed by this workspace's worktree |
+| `close()`                | `() => Promise<CloseResult>`                                           | Clean up the worktree (preserves if dirty)                      |
+| `[Symbol.asyncDispose]`  | `() => Promise<void>`                                                  | Auto cleanup via `await using`                                  |
 
 #### `WorkspaceInteractiveOptions`
 
@@ -400,6 +416,14 @@ console.log(result.commits); // commits made during the run
 | `commits`          | { sha: string }[] | List of commits made by the agent during the run       |
 | `branch`           | string            | The branch name the agent worked on                    |
 | `logFilePath`      | string            | Path to the log file, if logging was drained to a file |
+
+#### `WorkspaceCreateSandboxOptions`
+
+| Option            | Type            | Default | Description                                                          |
+| ----------------- | --------------- | ------- | -------------------------------------------------------------------- |
+| `sandbox`         | SandboxProvider | —       | **Required.** Sandbox provider (e.g. `docker()`)                     |
+| `hooks`           | SandboxHooks    | —       | One-time setup hooks to run when the sandbox is first created        |
+| `copyToWorkspace` | string[]        | —       | Host-relative file paths to copy into the workspace at creation time |
 
 ## How it works
 
