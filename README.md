@@ -65,14 +65,16 @@ await run({
 
 ## Sandbox Providers
 
-Sandcastle uses a `SandboxProvider` to create isolated environments. The `sandbox` option on `run()` and `createSandbox()` accepts any provider. A no-sandbox option is also available for `interactive()` only. Built-in providers:
+Sandcastle uses a `SandboxProvider` to create isolated environments. The `sandbox` option on `run()` and `createSandbox()` accepts any provider. A no-sandbox option is also available for `interactive()` and `ws.interactive()`. Built-in providers:
 
-| Provider   | Import path                                | Type       | Accepted by                                 |
-| ---------- | ------------------------------------------ | ---------- | ------------------------------------------- |
-| Docker     | `@ai-hero/sandcastle/sandboxes/docker`     | Bind-mount | `run()`, `createSandbox()`, `interactive()` |
-| Podman     | `@ai-hero/sandcastle/sandboxes/podman`     | Bind-mount | `run()`, `createSandbox()`, `interactive()` |
-| Vercel     | `@ai-hero/sandcastle/sandboxes/vercel`     | Isolated   | `run()`, `createSandbox()`, `interactive()` |
-| No-sandbox | `@ai-hero/sandcastle/sandboxes/no-sandbox` | None       | `interactive()` only                        |
+| Provider   | Import path                                | Type       | Accepted by                                   |
+| ---------- | ------------------------------------------ | ---------- | --------------------------------------------- |
+| Docker     | `@ai-hero/sandcastle/sandboxes/docker`     | Bind-mount | `run()`, `createSandbox()`, `interactive()`   |
+| Podman     | `@ai-hero/sandcastle/sandboxes/podman`     | Bind-mount | `run()`, `createSandbox()`, `interactive()`   |
+| Vercel     | `@ai-hero/sandcastle/sandboxes/vercel`     | Isolated   | `run()`, `createSandbox()`, `interactive()`   |
+| No-sandbox | `@ai-hero/sandcastle/sandboxes/no-sandbox` | None       | `interactive()`, `ws.interactive()` (default) |
+
+Workspace methods (`ws.run()`, `ws.interactive()`, `ws.createSandbox()`) accept the same providers as their top-level counterparts. `ws.interactive()` defaults to `noSandbox()` when no sandbox is specified.
 
 ```typescript
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
