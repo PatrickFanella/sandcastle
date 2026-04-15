@@ -91,7 +91,7 @@ await run({
 await interactive({
   agent: claudeCode("claude-opus-4-6"),
   sandbox: noSandbox(),
-  prompt: "...",
+  prompt: "...", // optional — omit to launch the TUI with no initial prompt
 });
 ```
 

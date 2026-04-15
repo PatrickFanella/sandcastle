@@ -134,8 +134,11 @@ export const interactive = async (
   const inner = Effect.gen(function* () {
     const d = yield* Display;
 
-    // 1. Resolve prompt (from string or file)
-    const rawPrompt = yield* resolvePrompt({ prompt, promptFile });
+    // 1. Resolve prompt (from string or file), or skip if neither provided
+    const hasPromptSource = prompt !== undefined || promptFile !== undefined;
+    const rawPrompt = hasPromptSource
+      ? yield* resolvePrompt({ prompt, promptFile })
+      : "";
 
     // 2. Resolve env vars
     const resolvedEnv = yield* resolveEnv(hostRepoDir);
@@ -154,43 +157,46 @@ export const interactive = async (
         ? currentHostBranch
         : (branch ?? generateTempBranchName(options.name));
 
-    // 4. Validate prompt args and collect missing ones interactively
-    const userArgs = options.promptArgs ?? {};
-    yield* validateNoBuiltInArgOverride(userArgs);
+    // 4. Validate prompt args and collect missing ones interactively (skip when no prompt)
+    let substitutedPrompt = rawPrompt;
+    if (hasPromptSource) {
+      const userArgs = options.promptArgs ?? {};
+      yield* validateNoBuiltInArgOverride(userArgs);
 
-    // Scan for missing keys and prompt the user for each one
-    const missingKeys = findMissingPromptArgKeys(rawPrompt, userArgs);
-    const collectedArgs: Record<string, string> = {};
-    for (const key of missingKeys) {
-      const value = yield* Effect.promise(() =>
-        clack.text({
-          message: `Enter value for {{${key}}}`,
-          validate: (v) => {
-            if (!v) return `A value is required for {{${key}}}`;
-          },
-        }),
-      );
-      if (clack.isCancel(value)) {
-        clack.cancel("Prompt arg collection cancelled.");
-        return yield* Effect.fail(
-          new Error("User cancelled prompt arg collection"),
+      // Scan for missing keys and prompt the user for each one
+      const missingKeys = findMissingPromptArgKeys(rawPrompt, userArgs);
+      const collectedArgs: Record<string, string> = {};
+      for (const key of missingKeys) {
+        const value = yield* Effect.promise(() =>
+          clack.text({
+            message: `Enter value for {{${key}}}`,
+            validate: (v) => {
+              if (!v) return `A value is required for {{${key}}}`;
+            },
+          }),
         );
+        if (clack.isCancel(value)) {
+          clack.cancel("Prompt arg collection cancelled.");
+          return yield* Effect.fail(
+            new Error("User cancelled prompt arg collection"),
+          );
+        }
+        collectedArgs[key] = value;
       }
-      collectedArgs[key] = value;
-    }
 
-    const mergedUserArgs = { ...userArgs, ...collectedArgs };
-    const effectiveArgs = {
-      SOURCE_BRANCH: resolvedBranch,
-      TARGET_BRANCH: currentHostBranch,
-      ...mergedUserArgs,
-    };
-    const builtInArgKeysSet = new Set<string>(BUILT_IN_PROMPT_ARG_KEYS);
-    const substitutedPrompt = yield* substitutePromptArgs(
-      rawPrompt,
-      effectiveArgs,
-      builtInArgKeysSet,
-    );
+      const mergedUserArgs = { ...userArgs, ...collectedArgs };
+      const effectiveArgs = {
+        SOURCE_BRANCH: resolvedBranch,
+        TARGET_BRANCH: currentHostBranch,
+        ...mergedUserArgs,
+      };
+      const builtInArgKeysSet = new Set<string>(BUILT_IN_PROMPT_ARG_KEYS);
+      substitutedPrompt = yield* substitutePromptArgs(
+        rawPrompt,
+        effectiveArgs,
+        builtInArgKeysSet,
+      );
+    }
 
     // In head mode, pass the host branch so SandboxLifecycle skips the merge step.
     const lifecycleBranch = isHeadMode ? currentHostBranch : branch;
@@ -308,11 +314,14 @@ export const interactive = async (
         (ctx) =>
           Effect.gen(function* () {
             // Preprocess prompt (expand !`command` shell expressions inside sandbox)
-            const fullPrompt = yield* preprocessPrompt(
-              substitutedPrompt,
-              ctx.sandbox,
-              ctx.sandboxRepoDir,
-            );
+            // Skip when no prompt source was provided
+            const fullPrompt = hasPromptSource
+              ? yield* preprocessPrompt(
+                  substitutedPrompt,
+                  ctx.sandbox,
+                  ctx.sandboxRepoDir,
+                )
+              : "";
 
             // Build interactive args and run the session
             const interactiveArgs = provider.buildInteractiveArgs!({
