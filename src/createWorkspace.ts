@@ -13,13 +13,15 @@ import {
 import { withSandboxLifecycle, type SandboxHooks } from "./SandboxLifecycle.js";
 import type {
   AnySandboxProvider,
+  SandboxProvider,
   MergeToHeadBranchStrategy,
   NamedBranchStrategy,
   BindMountSandboxHandle,
   IsolatedSandboxHandle,
   NoSandboxHandle,
 } from "./SandboxProvider.js";
-import type { CloseResult } from "./createSandbox.js";
+import type { CloseResult, Sandbox } from "./createSandbox.js";
+import { createSandboxFromWorkspace } from "./createSandbox.js";
 import type { InteractiveResult } from "./interactive.js";
 import { resolveEnv } from "./EnvResolver.js";
 import { mergeProviderEnv } from "./mergeProviderEnv.js";
@@ -70,6 +72,26 @@ export interface WorkspaceInteractiveOptions {
   readonly env?: Record<string, string>;
 }
 
+export interface WorkspaceCreateSandboxOptions {
+  /** Sandbox provider (e.g. docker({ imageName: "sandcastle:myrepo" })). */
+  readonly sandbox: SandboxProvider;
+  /** One-time setup hooks to run when the sandbox is first created. */
+  readonly hooks?: {
+    readonly onSandboxReady?: ReadonlyArray<{
+      command: string;
+      sudo?: boolean;
+    }>;
+  };
+  /** Paths relative to the host repo root to copy into the workspace at creation time. */
+  readonly copyToWorkspace?: string[];
+  /** @internal Test-only overrides to bypass the sandbox provider. */
+  readonly _test?: {
+    readonly buildSandboxLayer?: (
+      sandboxDir: string,
+    ) => import("effect").Layer.Layer<import("./SandboxFactory.js").Sandbox>;
+  };
+}
+
 export interface Workspace {
   /** The branch the workspace is on. */
   readonly branch: string;
@@ -77,6 +99,8 @@ export interface Workspace {
   readonly workspacePath: string;
   /** Run an interactive agent session in this workspace. */
   interactive(options: WorkspaceInteractiveOptions): Promise<InteractiveResult>;
+  /** Create a long-lived sandbox backed by this workspace's worktree. */
+  createSandbox(options: WorkspaceCreateSandboxOptions): Promise<Sandbox>;
   /** Clean up the workspace. Preserves worktree if dirty. */
   close(): Promise<CloseResult>;
   /** Auto cleanup via `await using`. */
@@ -317,10 +341,25 @@ export const createWorkspace = async (
     );
   };
 
+  const workspaceCreateSandbox = async (
+    opts: WorkspaceCreateSandboxOptions,
+  ): Promise<Sandbox> => {
+    return createSandboxFromWorkspace({
+      branch: worktreeInfo.branch,
+      worktreePath: worktreeInfo.path,
+      hostRepoDir,
+      sandbox: opts.sandbox,
+      hooks: opts.hooks,
+      copyToWorkspace: opts.copyToWorkspace,
+      _test: opts._test,
+    });
+  };
+
   return {
     branch: worktreeInfo.branch,
     workspacePath: worktreeInfo.path,
     interactive: workspaceInteractive,
+    createSandbox: workspaceCreateSandbox,
     close,
     async [Symbol.asyncDispose]() {
       await close();

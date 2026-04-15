@@ -4,15 +4,22 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { Layer } from "effect";
 import { describe, expect, it } from "vitest";
 import { createWorkspace } from "./createWorkspace.js";
-import type { CreateWorkspaceOptions } from "./createWorkspace.js";
+import type {
+  CreateWorkspaceOptions,
+  WorkspaceCreateSandboxOptions,
+} from "./createWorkspace.js";
 import { claudeCode } from "./AgentProvider.js";
 import {
   createBindMountSandboxProvider,
   type BindMountSandboxHandle,
   type InteractiveExecOptions,
+  type SandboxProvider,
 } from "./SandboxProvider.js";
+import { makeLocalSandboxLayer } from "./testSandbox.js";
+import { Sandbox as SandboxTag } from "./SandboxFactory.js";
 
 const execAsync = promisify(exec);
 
@@ -347,5 +354,153 @@ describe("workspace.interactive()", () => {
       await ws.close();
       await rm(hostDir, { recursive: true, force: true });
     }
+  });
+});
+
+/** Dummy sandbox provider used to satisfy the required `sandbox` field in test mode. */
+const testSandbox: SandboxProvider = createBindMountSandboxProvider({
+  name: "test",
+  create: async (options) => ({
+    workspacePath: options.workspacePath,
+    exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+    close: async () => {},
+  }),
+});
+
+describe("workspace.createSandbox()", () => {
+  it("creates a sandbox with branch and workspacePath from the workspace", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "ws-sandbox-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "init.txt", "init", "initial commit");
+
+    const ws = await createWorkspace({
+      branchStrategy: { type: "branch", branch: "ws-sandbox-test" },
+      _test: { hostRepoDir: hostDir },
+    });
+
+    try {
+      const sandbox = await ws.createSandbox({
+        sandbox: testSandbox,
+        _test: {
+          buildSandboxLayer: (sandboxDir) => makeLocalSandboxLayer(sandboxDir),
+        },
+      });
+
+      try {
+        expect(sandbox.branch).toBe("ws-sandbox-test");
+        expect(sandbox.workspacePath).toBe(ws.workspacePath);
+      } finally {
+        await sandbox.close();
+      }
+    } finally {
+      await ws.close();
+      await rm(hostDir, { recursive: true, force: true });
+    }
+  });
+
+  it("sandbox.close() tears down container but leaves worktree intact", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "ws-sandbox-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "init.txt", "init", "initial commit");
+
+    const ws = await createWorkspace({
+      branchStrategy: { type: "branch", branch: "split-ownership" },
+      _test: { hostRepoDir: hostDir },
+    });
+
+    try {
+      const sandbox = await ws.createSandbox({
+        sandbox: testSandbox,
+        _test: {
+          buildSandboxLayer: (sandboxDir) => makeLocalSandboxLayer(sandboxDir),
+        },
+      });
+
+      const closeResult = await sandbox.close();
+
+      // Sandbox close should NOT report preserved workspace (it doesn't own it)
+      expect(closeResult.preservedWorkspacePath).toBeUndefined();
+      // Worktree should still exist — workspace owns it
+      expect(existsSync(ws.workspacePath)).toBe(true);
+    } finally {
+      await ws.close();
+      await rm(hostDir, { recursive: true, force: true });
+    }
+  });
+
+  it("ws.close() cleans up worktree after sandbox.close()", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "ws-sandbox-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "init.txt", "init", "initial commit");
+
+    const ws = await createWorkspace({
+      branchStrategy: { type: "branch", branch: "ws-close-after-sandbox" },
+      _test: { hostRepoDir: hostDir },
+    });
+
+    const worktreePath = ws.workspacePath;
+
+    const sandbox = await ws.createSandbox({
+      sandbox: testSandbox,
+      _test: {
+        buildSandboxLayer: (sandboxDir) => makeLocalSandboxLayer(sandboxDir),
+      },
+    });
+
+    await sandbox.close();
+    expect(existsSync(worktreePath)).toBe(true);
+
+    const wsCloseResult = await ws.close();
+    expect(wsCloseResult.preservedWorkspacePath).toBeUndefined();
+    expect(existsSync(worktreePath)).toBe(false);
+
+    await rm(hostDir, { recursive: true, force: true });
+  });
+
+  it("multiple sandboxes can be created sequentially from the same workspace", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "ws-sandbox-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "init.txt", "init", "initial commit");
+
+    const ws = await createWorkspace({
+      branchStrategy: { type: "branch", branch: "sequential-sandbox" },
+      _test: { hostRepoDir: hostDir },
+    });
+
+    try {
+      // First sandbox
+      const sandbox1 = await ws.createSandbox({
+        sandbox: testSandbox,
+        _test: {
+          buildSandboxLayer: (sandboxDir) => makeLocalSandboxLayer(sandboxDir),
+        },
+      });
+      expect(sandbox1.branch).toBe("sequential-sandbox");
+      await sandbox1.close();
+
+      // Second sandbox — should work on same worktree
+      const sandbox2 = await ws.createSandbox({
+        sandbox: testSandbox,
+        _test: {
+          buildSandboxLayer: (sandboxDir) => makeLocalSandboxLayer(sandboxDir),
+        },
+      });
+      expect(sandbox2.branch).toBe("sequential-sandbox");
+      expect(sandbox2.workspacePath).toBe(ws.workspacePath);
+      await sandbox2.close();
+
+      expect(existsSync(ws.workspacePath)).toBe(true);
+    } finally {
+      await ws.close();
+      await rm(hostDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not accept branch options", () => {
+    const _options: WorkspaceCreateSandboxOptions = {
+      sandbox: testSandbox,
+      // @ts-expect-error - branch should not be accepted
+      branch: "should-not-work",
+    };
   });
 });
