@@ -4,7 +4,6 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { Layer } from "effect";
 import { describe, expect, it } from "vitest";
 import { createWorkspace } from "./createWorkspace.js";
 import type {
@@ -19,7 +18,6 @@ import {
   type SandboxProvider,
 } from "./SandboxProvider.js";
 import { makeLocalSandboxLayer } from "./testSandbox.js";
-import { Sandbox as SandboxTag } from "./SandboxFactory.js";
 
 const execAsync = promisify(exec);
 
