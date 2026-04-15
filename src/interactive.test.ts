@@ -282,6 +282,65 @@ describe("interactive()", () => {
     expect(receivedOpts!.cwd).toBeDefined();
   });
 
+  // --- No-prompt tests ---
+
+  it("launches without prompt when neither prompt nor promptFile is provided", async () => {
+    const receivedArgs: string[] = [];
+
+    const provider = makeTestProvider(async (args, _opts) => {
+      receivedArgs.push(...args);
+      return { exitCode: 0 };
+    });
+
+    const result = await interactive({
+      agent: claudeCode("claude-opus-4-6"),
+      sandbox: provider,
+    });
+
+    expect(result.exitCode).toBe(0);
+    // Should have called interactiveExec with args from buildInteractiveArgs (empty prompt)
+    expect(receivedArgs[0]).toBe("claude");
+    // Prompt should not appear in args (empty string is omitted by buildInteractiveArgs)
+    expect(receivedArgs[receivedArgs.length - 1]).not.toBe("");
+  });
+
+  it("skips promptArgs substitution when no prompt is provided", async () => {
+    const receivedArgs: string[] = [];
+
+    const provider = makeTestProvider(async (args, _opts) => {
+      receivedArgs.push(...args);
+      return { exitCode: 0 };
+    });
+
+    // This should NOT throw even though promptArgs has keys — there's no prompt to substitute into
+    const result = await interactive({
+      agent: claudeCode("claude-opus-4-6"),
+      sandbox: provider,
+      promptArgs: { COMPONENT: "LoginForm" },
+    });
+
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("skips shell expression preprocessing when no prompt is provided", async () => {
+    const receivedArgs: string[] = [];
+
+    const provider = makeTestProvider(async (args, _opts) => {
+      receivedArgs.push(...args);
+      return { exitCode: 0 };
+    });
+
+    const result = await interactive({
+      agent: claudeCode("claude-opus-4-6"),
+      sandbox: provider,
+    });
+
+    expect(result.exitCode).toBe(0);
+    // No prompt-related args should be in the command
+    const joined = receivedArgs.join(" ");
+    expect(joined).not.toContain("!`");
+  });
+
   // --- Prompt preprocessing tests ---
 
   it("reads prompt from promptFile", async () => {
