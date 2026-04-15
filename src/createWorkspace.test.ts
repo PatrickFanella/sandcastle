@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { createWorkspace } from "./createWorkspace.js";
 import type {
   CreateWorkspaceOptions,
-  WorkspaceRunResult,
+  WorkspaceRunOptions,
 } from "./createWorkspace.js";
 import { claudeCode } from "./AgentProvider.js";
 import {
@@ -524,8 +524,6 @@ describe("workspace.run()", () => {
       agent: claudeCode("claude-opus-4-6"),
       prompt: "test",
       // @ts-expect-error — sandbox is required
-    } satisfies Parameters<
-      Exclude<Awaited<ReturnType<typeof createWorkspace>>["run"], undefined>
-    >[0];
+    } satisfies WorkspaceRunOptions;
   });
 });

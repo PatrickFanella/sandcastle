@@ -1,18 +1,11 @@
 import { NodeContext, NodeFileSystem } from "@effect/platform-node";
 import { join } from "node:path";
-import { Effect, Layer, Ref } from "effect";
+import { Effect, Layer } from "effect";
 import type { AgentProvider } from "./AgentProvider.js";
-import {
-  ClackDisplay,
-  Display,
-  FileDisplay,
-  SilentDisplay,
-  type DisplayEntry,
-} from "./Display.js";
+import { ClackDisplay, Display, FileDisplay } from "./Display.js";
 import { preprocessPrompt } from "./PromptPreprocessor.js";
 import { resolvePrompt } from "./PromptResolver.js";
 import {
-  Sandbox as SandboxTag,
   SandboxFactory,
   makeSandboxLayerFromHandle,
   resolveGitMounts,
