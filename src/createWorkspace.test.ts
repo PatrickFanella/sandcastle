@@ -212,13 +212,11 @@ describe("workspace.interactive()", () => {
       },
     });
 
-  it("defaults to noSandbox when sandbox is not provided", async () => {
+  it("runs interactive session and returns result shape", async () => {
     const hostDir = await mkdtemp(join(tmpdir(), "ws-interactive-"));
     await initRepo(hostDir);
     await commitFile(hostDir, "init.txt", "init", "initial commit");
 
-    // noSandbox spawns the real agent binary, so we verify the option type
-    // accepts no sandbox and use a bind-mount provider for the actual execution test
     const provider = makeTestProvider(async (_args, _opts) => {
       return { exitCode: 0 };
     });
@@ -229,7 +227,6 @@ describe("workspace.interactive()", () => {
     });
 
     try {
-      // With explicit sandbox — verifies the interactive method works
       const result = await ws.interactive({
         agent: claudeCode("claude-opus-4-6"),
         sandbox: provider,

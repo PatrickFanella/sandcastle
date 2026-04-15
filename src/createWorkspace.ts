@@ -301,7 +301,7 @@ export const createWorkspace = async (
           branch: lifecycleResult.branch,
           preservedWorkspacePath: undefined,
           exitCode,
-        } as InteractiveResult;
+        } satisfies InteractiveResult;
       }).pipe(
         // Always close sandbox handle
         Effect.ensuring(Effect.promise(() => handle.close().catch(() => {}))),
