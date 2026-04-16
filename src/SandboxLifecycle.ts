@@ -39,6 +39,23 @@ const execOk = (
       : Effect.succeed(result),
   );
 
+const execOkWithGitTimeout = (
+  sandbox: SandboxService,
+  command: string,
+  options?: { cwd?: string },
+): Effect.Effect<ExecResult, ExecError | GitSetupTimeoutError> =>
+  execOk(sandbox, command, options).pipe(
+    withTimeout(
+      GIT_SETUP_TIMEOUT_MS,
+      () =>
+        new GitSetupTimeoutError({
+          message: `Git command timed out after ${GIT_SETUP_TIMEOUT_MS}ms: ${command}`,
+          timeoutMs: GIT_SETUP_TIMEOUT_MS,
+          command,
+        }),
+    ),
+  );
+
 const execAsync = promisify(exec);
 
 export type SandboxHooks = {
@@ -117,67 +134,31 @@ export const withSandboxLifecycle = <A>(
         // The bind-mounted worktree may be owned by a different UID (host user
         // vs sandbox user). Mark it safe so git doesn't reject it with
         // "dubious ownership".
-        yield* execOk(
+        yield* execOkWithGitTimeout(
           sandbox,
           `git config --global --add safe.directory "${sandboxRepoDir}"`,
-        ).pipe(
-          withTimeout(
-            GIT_SETUP_TIMEOUT_MS,
-            () =>
-              new GitSetupTimeoutError({
-                message: `Git safe.directory config timed out after ${GIT_SETUP_TIMEOUT_MS}ms`,
-                timeoutMs: GIT_SETUP_TIMEOUT_MS,
-                command: `git config --global --add safe.directory "${sandboxRepoDir}"`,
-              }),
-          ),
         );
 
         // Propagate host git identity into the sandbox so commits are attributed
         // to the actual developer without requiring manual setup.
         if (hostGitName) {
-          const cmd = `git config --global user.name "${hostGitName.replace(/"/g, '\\"')}"`;
-          yield* execOk(sandbox, cmd).pipe(
-            withTimeout(
-              GIT_SETUP_TIMEOUT_MS,
-              () =>
-                new GitSetupTimeoutError({
-                  message: `Git user.name config timed out after ${GIT_SETUP_TIMEOUT_MS}ms`,
-                  timeoutMs: GIT_SETUP_TIMEOUT_MS,
-                  command: cmd,
-                }),
-            ),
+          yield* execOkWithGitTimeout(
+            sandbox,
+            `git config --global user.name "${hostGitName.replace(/"/g, '\\"')}"`,
           );
         }
         if (hostGitEmail) {
-          const cmd = `git config --global user.email "${hostGitEmail.replace(/"/g, '\\"')}"`;
-          yield* execOk(sandbox, cmd).pipe(
-            withTimeout(
-              GIT_SETUP_TIMEOUT_MS,
-              () =>
-                new GitSetupTimeoutError({
-                  message: `Git user.email config timed out after ${GIT_SETUP_TIMEOUT_MS}ms`,
-                  timeoutMs: GIT_SETUP_TIMEOUT_MS,
-                  command: cmd,
-                }),
-            ),
+          yield* execOkWithGitTimeout(
+            sandbox,
+            `git config --global user.email "${hostGitEmail.replace(/"/g, '\\"')}"`,
           );
         }
 
         // Repo is bind-mounted — discover branch directly
-        resolvedBranch = (yield* execOk(
+        resolvedBranch = (yield* execOkWithGitTimeout(
           sandbox,
           "git rev-parse --abbrev-ref HEAD",
           { cwd: sandboxRepoDir },
-        ).pipe(
-          withTimeout(
-            GIT_SETUP_TIMEOUT_MS,
-            () =>
-              new GitSetupTimeoutError({
-                message: `Git branch detection timed out after ${GIT_SETUP_TIMEOUT_MS}ms`,
-                timeoutMs: GIT_SETUP_TIMEOUT_MS,
-                command: "git rev-parse --abbrev-ref HEAD",
-              }),
-          ),
         )).stdout.trim();
 
         if (hooks?.onSandboxReady?.length) {
