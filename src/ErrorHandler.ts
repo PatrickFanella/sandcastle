@@ -41,6 +41,7 @@ export const formatErrorMessage = (error: SandboxError): string => {
     case "CommitCollectionTimeoutError":
     case "MergeToHostTimeoutError":
     case "SessionCaptureError":
+    case "CwdError":
       return error.message;
   }
 };
@@ -84,4 +85,5 @@ export const withFriendlyErrors = <A, E, R>(
     CommitCollectionTimeoutError: showErrorAndExit,
     MergeToHostTimeoutError: showErrorAndExit,
     SessionCaptureError: showErrorAndExit,
+    CwdError: showErrorAndExit,
   }) as Effect.Effect<A, Exclude<E, SandboxError>, R | Display>;
