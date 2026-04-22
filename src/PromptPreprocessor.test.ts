@@ -136,20 +136,17 @@ describe("PromptPreprocessor", () => {
     const taskLogEntry = entries.find((e) => e._tag === "taskLog");
     expect(taskLogEntry).toBeDefined();
     if (taskLogEntry!._tag !== "taskLog") throw new Error("unreachable");
-    // First two messages are the command names (existing behavior)
-    expect(taskLogEntry!.messages[0]).toBe("echo hello");
-    expect(taskLogEntry!.messages[1]).toBe("echo world");
-    // Next two messages are per-command token counts
+    // Each command appears exactly once — with its token count
     const helloTokens = Math.ceil("hello".length / 4);
     const worldTokens = Math.ceil("world".length / 4);
-    expect(taskLogEntry!.messages[2]).toBe(
+    expect(taskLogEntry!.messages[0]).toBe(
       `echo hello \u2192 ~${helloTokens} tokens`,
     );
-    expect(taskLogEntry!.messages[3]).toBe(
+    expect(taskLogEntry!.messages[1]).toBe(
       `echo world \u2192 ~${worldTokens} tokens`,
     );
-    // No total line — exactly 4 messages
-    expect(taskLogEntry!.messages).toHaveLength(4);
+    // No upfront command names, no total line — exactly 2 messages
+    expect(taskLogEntry!.messages).toHaveLength(2);
   });
 
   it("does not show taskLog when prompt has no commands", async () => {

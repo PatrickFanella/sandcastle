@@ -30,11 +30,6 @@ export const preprocessPrompt = (
     const display = yield* Display;
     return yield* display.taskLog("Expanding shell expressions", (message) =>
       Effect.gen(function* () {
-        // Log all commands upfront in document order
-        for (const match of matches) {
-          message(match[1]!);
-        }
-
         // Execute all commands in parallel
         const results = yield* Effect.all(
           matches.map((match) => {
