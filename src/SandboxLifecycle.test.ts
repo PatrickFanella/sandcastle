@@ -998,6 +998,88 @@ describe("withSandboxLifecycle (worktree mode)", () => {
     expect(sandboxContent.trim()).toBe("sandbox-ready");
   });
 
+  it("host.onSandboxReady hook is killed when signal fires", async () => {
+    const { hostDir, worktreeDir, layer } = await setupWorktree();
+    const ac = new AbortController();
+
+    const promise = Effect.runPromise(
+      withSandboxLifecycle(
+        {
+          hostRepoDir: hostDir,
+          sandboxRepoDir: worktreeDir,
+          branch: "sandcastle/test",
+          signal: ac.signal,
+          hooks: {
+            host: {
+              onSandboxReady: [{ command: "sleep 60" }],
+            },
+          },
+        },
+        () => Effect.succeed("ok"),
+      ).pipe(Effect.provide(Layer.merge(layer, testDisplayLayer))),
+    );
+
+    setTimeout(() => ac.abort("cancelled"), 50);
+    await expect(promise).rejects.toThrow();
+  });
+
+  it("sandbox.onSandboxReady hook is killed when signal fires", async () => {
+    const { hostDir, worktreeDir, layer } = await setupWorktree();
+    const ac = new AbortController();
+
+    const promise = Effect.runPromise(
+      withSandboxLifecycle(
+        {
+          hostRepoDir: hostDir,
+          sandboxRepoDir: worktreeDir,
+          branch: "sandcastle/test",
+          signal: ac.signal,
+          hooks: {
+            sandbox: {
+              onSandboxReady: [{ command: "sleep 60" }],
+            },
+          },
+        },
+        () => Effect.succeed("ok"),
+      ).pipe(Effect.provide(Layer.merge(layer, testDisplayLayer))),
+    );
+
+    setTimeout(() => ac.abort("cancelled"), 50);
+    await expect(promise).rejects.toThrow();
+  });
+
+  it("hooks receive never-aborted signal when no signal is provided", async () => {
+    const { hostDir, worktreeDir, layer } = await setupWorktree();
+
+    // Should work normally — hooks complete without issues
+    await Effect.runPromise(
+      withSandboxLifecycle(
+        {
+          hostRepoDir: hostDir,
+          sandboxRepoDir: worktreeDir,
+          branch: "sandcastle/test",
+          hooks: {
+            host: {
+              onSandboxReady: [{ command: "echo ok > host-signal-test.txt" }],
+            },
+            sandbox: {
+              onSandboxReady: [
+                { command: "echo ok > sandbox-signal-test.txt" },
+              ],
+            },
+          },
+        },
+        () => Effect.succeed("ok"),
+      ).pipe(Effect.provide(Layer.merge(layer, testDisplayLayer))),
+    );
+
+    const content = await readFile(
+      join(worktreeDir, "host-signal-test.txt"),
+      "utf-8",
+    );
+    expect(content.trim()).toBe("ok");
+  });
+
   it("host.onSandboxReady hook failure propagates error", async () => {
     const { hostDir, worktreeDir, layer } = await setupWorktree();
 
@@ -1063,5 +1145,32 @@ describe("runHostHooks", () => {
 
     const content = await readFile(join(dir, "cwd.txt"), "utf-8");
     expect(content.trim()).toBe(dir);
+  });
+
+  it("aborts a running hook when signal fires", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "host-hooks-"));
+    const ac = new AbortController();
+
+    // Start a long-running hook then abort after a short delay
+    const promise = Effect.runPromise(
+      runHostHooks([{ command: "sleep 60" }], dir, ac.signal),
+    );
+
+    // Give the process time to start, then abort
+    setTimeout(() => ac.abort("cancelled"), 50);
+
+    await expect(promise).rejects.toThrow();
+  });
+
+  it("works normally when signal is not provided", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "host-hooks-"));
+
+    // No signal arg — should work as before
+    await Effect.runPromise(
+      runHostHooks([{ command: "echo ok > result.txt" }], dir),
+    );
+
+    const content = await readFile(join(dir, "result.txt"), "utf-8");
+    expect(content.trim()).toBe("ok");
   });
 });

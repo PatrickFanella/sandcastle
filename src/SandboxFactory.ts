@@ -179,6 +179,8 @@ export class SandboxConfig extends Context.Tag("SandboxConfig")<
     readonly branchStrategy: BranchStrategy;
     /** Lifecycle hooks grouped by execution location (host or sandbox). */
     readonly hooks?: SandboxHooks;
+    /** AbortSignal threaded to lifecycle hooks so they can cooperatively cancel. */
+    readonly signal?: AbortSignal;
   }
 >() {}
 
@@ -305,6 +307,7 @@ export const WorktreeDockerSandboxFactory = {
         sandboxProvider,
         branchStrategy,
         hooks,
+        signal,
       } = yield* SandboxConfig;
 
       const isHeadMode = branchStrategy.type === "head";
@@ -352,6 +355,7 @@ export const WorktreeDockerSandboxFactory = {
                     ? runHostHooks(
                         hooks.host.onWorktreeReady,
                         worktreeInfo.path,
+                        signal,
                       )
                     : Effect.void,
                 ),
@@ -412,7 +416,7 @@ export const WorktreeDockerSandboxFactory = {
             const gitPath = join(hostRepoDir, ".git");
             return (
               hooks?.host?.onWorktreeReady?.length
-                ? runHostHooks(hooks.host.onWorktreeReady, hostRepoDir)
+                ? runHostHooks(hooks.host.onWorktreeReady, hostRepoDir, signal)
                 : Effect.void
             ).pipe(
               Effect.andThen(resolveGitMounts(gitPath)),
@@ -480,7 +484,11 @@ export const WorktreeDockerSandboxFactory = {
               ),
               Effect.tap((worktreeInfo) =>
                 hooks?.host?.onWorktreeReady?.length
-                  ? runHostHooks(hooks.host.onWorktreeReady, worktreeInfo.path)
+                  ? runHostHooks(
+                      hooks.host.onWorktreeReady,
+                      worktreeInfo.path,
+                      signal,
+                    )
                   : Effect.void,
               ),
               Effect.flatMap((worktreeInfo) => {

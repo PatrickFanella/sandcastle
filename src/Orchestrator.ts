@@ -258,6 +258,7 @@ export const orchestrate = (
               branch,
               hostWorktreePath,
               applyToHost,
+              signal: options.signal,
             },
             (ctx) =>
               Effect.gen(function* () {

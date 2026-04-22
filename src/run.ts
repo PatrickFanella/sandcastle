@@ -369,6 +369,7 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
         sandboxProvider: options.sandbox,
         branchStrategy,
         hooks,
+        signal: options.signal,
       }),
       NodeFileSystem.layer,
       displayLayer,

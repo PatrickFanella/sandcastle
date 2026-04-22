@@ -1,6 +1,6 @@
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
-import { Effect } from "effect";
+import { Deferred, Effect } from "effect";
 import { Display } from "./Display.js";
 import {
   CommitCollectionTimeoutError,
@@ -83,11 +83,12 @@ export type SandboxHooks = {
 export const runHostHooks = (
   hooks: ReadonlyArray<{ readonly command: string }>,
   cwd: string,
+  signal?: AbortSignal,
 ): Effect.Effect<void, ExecError | HookTimeoutError> =>
   Effect.gen(function* () {
     for (const hook of hooks) {
       yield* Effect.tryPromise({
-        try: () => execAsync(hook.command, { cwd }),
+        try: () => execAsync(hook.command, { cwd, signal }),
         catch: (err) =>
           new ExecError({
             command: hook.command,
@@ -119,6 +120,9 @@ export interface SandboxLifecycleOptions {
    *  For isolated providers, this syncs changes from the sandbox to the host worktree.
    *  For bind-mount providers, this is a no-op (filesystem is already shared). */
   readonly applyToHost?: () => Effect.Effect<void, SyncError>;
+  /** AbortSignal passed through to lifecycle hooks so they can cooperatively cancel.
+   *  When omitted, hooks receive a never-aborted signal. */
+  readonly signal?: AbortSignal;
 }
 
 export interface SandboxContext {
@@ -144,6 +148,10 @@ export const withSandboxLifecycle = <A>(
     const display = yield* Display;
     const { hostRepoDir, sandboxRepoDir, hooks, branch, hostWorktreePath } =
       options;
+
+    // Resolve signal: use caller's signal or a never-aborted one so hooks
+    // can unconditionally reference it without null-checking.
+    const signal = options.signal ?? new AbortController().signal;
 
     // Without an explicit branch, record host's current branch for cherry-pick
     const hostCurrentBranch: string | null = !branch
@@ -222,20 +230,55 @@ export const withSandboxLifecycle = <A>(
           }
         }
 
-        const sandboxHookEffects = (sandboxHooks ?? []).map((hook) =>
-          execOk(sandbox, hook.command, {
-            cwd: sandboxRepoDir,
-            sudo: hook.sudo,
-          }).pipe(
-            withTimeout(
-              HOOK_TIMEOUT_MS,
-              () =>
-                new HookTimeoutError({
-                  message: `Hook '${hook.command}' timed out after ${HOOK_TIMEOUT_MS}ms`,
-                  timeoutMs: HOOK_TIMEOUT_MS,
-                  command: hook.command,
+        // Set up abort racing for sandbox hooks (sandbox.exec doesn't
+        // natively support AbortSignal, so we race via Deferred).
+        const abortDeferred = yield* Deferred.make<never, ExecError>();
+        let abortCleanup: (() => void) | null = null;
+        if (signal.aborted) {
+          yield* Deferred.fail(
+            abortDeferred,
+            new ExecError({
+              command: "abort",
+              message: `Aborted: ${signal.reason}`,
+            }),
+          );
+        } else {
+          const onAbort = () => {
+            Effect.runPromise(
+              Deferred.fail(
+                abortDeferred,
+                new ExecError({
+                  command: "abort",
+                  message: `Aborted: ${signal.reason}`,
                 }),
+              ),
+            ).catch(() => {});
+          };
+          signal.addEventListener("abort", onAbort, { once: true });
+          abortCleanup = () => signal.removeEventListener("abort", onAbort);
+        }
+
+        const sandboxHookEffects = (sandboxHooks ?? []).map((hook) =>
+          Effect.raceFirst(
+            execOk(sandbox, hook.command, {
+              cwd: sandboxRepoDir,
+              sudo: hook.sudo,
+            }).pipe(
+              withTimeout(
+                HOOK_TIMEOUT_MS,
+                () =>
+                  new HookTimeoutError({
+                    message: `Hook '${hook.command}' timed out after ${HOOK_TIMEOUT_MS}ms`,
+                    timeoutMs: HOOK_TIMEOUT_MS,
+                    command: hook.command,
+                  }),
+              ),
             ),
+            Deferred.await(abortDeferred) as Effect.Effect<
+              never,
+              ExecError,
+              never
+            >,
           ),
         );
 
@@ -244,6 +287,7 @@ export const withSandboxLifecycle = <A>(
             try: () =>
               execAsync(hook.command, {
                 cwd: hostSideWorktreePath,
+                signal,
               }),
             catch: (err) =>
               new ExecError({
@@ -264,11 +308,11 @@ export const withSandboxLifecycle = <A>(
         );
 
         const allOnSandboxReady = [...sandboxHookEffects, ...hostHookEffects];
-        if (allOnSandboxReady.length > 0) {
-          yield* Effect.all(allOnSandboxReady, {
-            concurrency: "unbounded",
-          });
-        }
+        yield* (
+          allOnSandboxReady.length > 0
+            ? Effect.all(allOnSandboxReady, { concurrency: "unbounded" })
+            : Effect.void
+        ).pipe(Effect.ensuring(Effect.sync(() => abortCleanup?.())));
       }),
     );
 
