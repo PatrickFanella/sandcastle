@@ -3,7 +3,7 @@
  * This replaces FilesystemSandbox which has been removed.
  */
 import { Effect, Layer } from "effect";
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { copyFile, mkdir } from "node:fs/promises";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -31,138 +31,62 @@ export const makeLocalSandboxLayer = (
 
   return Layer.succeed(Sandbox, {
     exec: (command, options) => {
-      if (options?.onLine) {
-        const onLine = options.onLine;
-        return Effect.async<ExecResult, ExecError>((resume) => {
-          const proc = spawn("sh", ["-c", command], {
-            cwd: options?.cwd ?? sandboxDir,
-            stdio: [
-              options?.stdin !== undefined ? "pipe" : "ignore",
-              "pipe",
-              "pipe",
-            ],
-            env,
-          });
+      return Effect.async<ExecResult, ExecError>((resume) => {
+        const proc = spawn("sh", ["-c", command], {
+          cwd: options?.cwd ?? sandboxDir,
+          stdio: [
+            options?.stdin !== undefined ? "pipe" : "ignore",
+            "pipe",
+            "pipe",
+          ],
+          env,
+        });
 
-          if (options?.stdin !== undefined) {
-            proc.stdin!.write(options.stdin);
-            proc.stdin!.end();
-          }
+        if (options?.stdin !== undefined) {
+          proc.stdin!.write(options.stdin);
+          proc.stdin!.end();
+        }
 
-          const stdoutChunks: string[] = [];
-          const stderrChunks: string[] = [];
+        const stdoutChunks: string[] = [];
+        const stderrChunks: string[] = [];
 
+        if (options?.onLine) {
+          const onLine = options.onLine;
           const rl = createInterface({ input: proc.stdout! });
           rl.on("line", (line) => {
             stdoutChunks.push(line);
             onLine(line);
           });
-
-          proc.stderr!.on("data", (chunk: Buffer) => {
-            stderrChunks.push(chunk.toString());
-          });
-
-          proc.on("error", (error) => {
-            resume(
-              Effect.fail(
-                new ExecError({
-                  command,
-                  message: `Failed to exec: ${error.message}`,
-                }),
-              ),
-            );
-          });
-
-          proc.on("close", (code) => {
-            resume(
-              Effect.succeed({
-                stdout: stdoutChunks.join("\n"),
-                stderr: stderrChunks.join(""),
-                exitCode: code ?? 0,
-              }),
-            );
-          });
-        });
-      }
-
-      if (options?.stdin !== undefined) {
-        return Effect.async<ExecResult, ExecError>((resume) => {
-          const proc = spawn("sh", ["-c", command], {
-            cwd: options?.cwd ?? sandboxDir,
-            stdio: ["pipe", "pipe", "pipe"],
-            env,
-          });
-
-          proc.stdin!.write(options.stdin);
-          proc.stdin!.end();
-
-          const stdoutChunks: string[] = [];
-          const stderrChunks: string[] = [];
-
+        } else {
           proc.stdout!.on("data", (chunk: Buffer) => {
             stdoutChunks.push(chunk.toString());
           });
+        }
 
-          proc.stderr!.on("data", (chunk: Buffer) => {
-            stderrChunks.push(chunk.toString());
-          });
-
-          proc.on("error", (error) => {
-            resume(
-              Effect.fail(
-                new ExecError({
-                  command,
-                  message: `Failed to exec: ${error.message}`,
-                }),
-              ),
-            );
-          });
-
-          proc.on("close", (code) => {
-            resume(
-              Effect.succeed({
-                stdout: stdoutChunks.join(""),
-                stderr: stderrChunks.join(""),
-                exitCode: code ?? 0,
-              }),
-            );
-          });
+        proc.stderr!.on("data", (chunk: Buffer) => {
+          stderrChunks.push(chunk.toString());
         });
-      }
 
-      return Effect.async<ExecResult, ExecError>((resume) => {
-        execFile(
-          "sh",
-          ["-c", command],
-          {
-            cwd: options?.cwd ?? sandboxDir,
-            maxBuffer: 10 * 1024 * 1024,
-            env,
-          },
-          (error, stdout, stderr) => {
-            if (error && error.code === undefined) {
-              resume(
-                Effect.fail(
-                  new ExecError({
-                    command,
-                    message: `Failed to exec: ${error.message}`,
-                  }),
-                ),
-              );
-            } else {
-              resume(
-                Effect.succeed({
-                  stdout: stdout.toString(),
-                  stderr: stderr.toString(),
-                  exitCode:
-                    typeof error?.code === "number"
-                      ? error.code
-                      : (0 as number),
-                }),
-              );
-            }
-          },
-        );
+        proc.on("error", (error) => {
+          resume(
+            Effect.fail(
+              new ExecError({
+                command,
+                message: `Failed to exec: ${error.message}`,
+              }),
+            ),
+          );
+        });
+
+        proc.on("close", (code) => {
+          resume(
+            Effect.succeed({
+              stdout: stdoutChunks.join(options?.onLine ? "\n" : ""),
+              stderr: stderrChunks.join(""),
+              exitCode: code ?? 0,
+            }),
+          );
+        });
       });
     },
 

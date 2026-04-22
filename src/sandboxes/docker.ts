@@ -144,99 +144,51 @@ export const docker = (options?: DockerOptions): SandboxProvider => {
           if (opts?.cwd) args.push("-w", opts.cwd);
           args.push(containerName, "sh", "-c", effectiveCommand);
 
-          if (opts?.onLine) {
-            const onLine = opts.onLine;
-            return new Promise((resolve, reject) => {
-              const proc = spawn("docker", args, {
-                stdio: [
-                  opts?.stdin !== undefined ? "pipe" : "ignore",
-                  "pipe",
-                  "pipe",
-                ],
-              });
+          return new Promise((resolve, reject) => {
+            const proc = spawn("docker", args, {
+              stdio: [
+                opts?.stdin !== undefined ? "pipe" : "ignore",
+                "pipe",
+                "pipe",
+              ],
+            });
 
-              if (opts?.stdin !== undefined) {
-                proc.stdin!.write(opts.stdin);
-                proc.stdin!.end();
-              }
+            if (opts?.stdin !== undefined) {
+              proc.stdin!.write(opts.stdin);
+              proc.stdin!.end();
+            }
 
-              const stdoutChunks: string[] = [];
-              const stderrChunks: string[] = [];
+            const stdoutChunks: string[] = [];
+            const stderrChunks: string[] = [];
 
+            if (opts?.onLine) {
+              const onLine = opts.onLine;
               const rl = createInterface({ input: proc.stdout! });
               rl.on("line", (line) => {
                 stdoutChunks.push(line);
                 onLine(line);
               });
-
-              proc.stderr!.on("data", (chunk: Buffer) => {
-                stderrChunks.push(chunk.toString());
-              });
-
-              proc.on("error", (error) => {
-                reject(new Error(`docker exec failed: ${error.message}`));
-              });
-
-              proc.on("close", (code) => {
-                resolve({
-                  stdout: stdoutChunks.join("\n"),
-                  stderr: stderrChunks.join(""),
-                  exitCode: code ?? 0,
-                });
-              });
-            });
-          }
-
-          if (opts?.stdin !== undefined) {
-            return new Promise((resolve, reject) => {
-              const proc = spawn("docker", args, {
-                stdio: ["pipe", "pipe", "pipe"],
-              });
-
-              proc.stdin!.write(opts.stdin);
-              proc.stdin!.end();
-
-              const stdoutChunks: string[] = [];
-              const stderrChunks: string[] = [];
-
+            } else {
               proc.stdout!.on("data", (chunk: Buffer) => {
                 stdoutChunks.push(chunk.toString());
               });
-              proc.stderr!.on("data", (chunk: Buffer) => {
-                stderrChunks.push(chunk.toString());
-              });
+            }
 
-              proc.on("error", (error) => {
-                reject(new Error(`docker exec failed: ${error.message}`));
-              });
+            proc.stderr!.on("data", (chunk: Buffer) => {
+              stderrChunks.push(chunk.toString());
+            });
 
-              proc.on("close", (code) => {
-                resolve({
-                  stdout: stdoutChunks.join(""),
-                  stderr: stderrChunks.join(""),
-                  exitCode: code ?? 0,
-                });
+            proc.on("error", (error) => {
+              reject(new Error(`docker exec failed: ${error.message}`));
+            });
+
+            proc.on("close", (code) => {
+              resolve({
+                stdout: stdoutChunks.join(opts?.onLine ? "\n" : ""),
+                stderr: stderrChunks.join(""),
+                exitCode: code ?? 0,
               });
             });
-          }
-
-          return new Promise((resolve, reject) => {
-            execFile(
-              "docker",
-              args,
-              { maxBuffer: 10 * 1024 * 1024 },
-              (error, stdout, stderr) => {
-                if (error && error.code === undefined) {
-                  reject(new Error(`docker exec failed: ${error.message}`));
-                } else {
-                  resolve({
-                    stdout: stdout.toString(),
-                    stderr: stderr.toString(),
-                    exitCode: typeof error?.code === "number" ? error.code : 0,
-                  });
-                }
-              },
-            );
           });
         },
 
