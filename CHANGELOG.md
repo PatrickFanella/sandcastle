@@ -1,5 +1,20 @@
 # @ai-hero/sandcastle
 
+## 0.5.2
+
+### Patch Changes
+
+- 1c71374: Add AbortSignal support for cancelling runs and interactive sessions. Pass `signal` to `run()`, `interactive()`, `Sandbox.run()`, `Sandbox.interactive()`, or any Worktree equivalent. Aborting kills the in-flight agent subprocess; handles remain usable for subsequent calls. Lifecycle hooks (`host.onWorktreeReady`, `host.onSandboxReady`, `sandbox.onSandboxReady`) are also cancelled when the signal fires.
+- 148905b: Expose per-iteration token usage on `IterationResult` via a new `usage?: IterationUsage` field. Returns raw token counts (`inputTokens`, `cacheCreationInputTokens`, `cacheReadInputTokens`, `outputTokens`) for Claude Code runs. Non-Claude agent providers return `undefined`.
+- 95ef2bd: Fix Codex agent provider not logging output during runs.
+- 6ca70c1: Fix session resume failing with `docker cp (in) failed` / `podman cp (in) failed` when the sandbox's project directory didn't yet exist.
+- 8d4e8ef: Fix Windows paths breaking Docker/Podman volume mounts. Backslashes in host paths and Windows-style sandbox paths are now normalized before reaching the container runtime.
+- a971e1e: Faster sandbox startup — remove the recursive `chown` that ran on every Docker and Podman container start. Add `containerUid`/`containerGid` options to the Podman provider for controlling in-container ownership.
+- 49c461e: Fix duplicate command entries appearing in the task log. Each command now appears once (with its token count).
+- a2dff20: Remove `throwOnDuplicateWorktree` option; worktrees are now always reused — clean worktrees log a message, dirty worktrees log a warning.
+- 51d668c: Fix runs failing when prompts exceed 128 KB on Linux. Prompts are now delivered via stdin instead of command-line arguments, avoiding the `execve(2)` argument size limit.
+- 308a1f6: `Worktree.run()` now accepts `resumeSession` to resume a prior Claude Code session by ID, matching the existing support on top-level `run()`.
+
 ## 0.5.1
 
 ### Patch Changes
