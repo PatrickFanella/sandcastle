@@ -119,11 +119,11 @@ const invokeAgent = (
       });
 
       if (execResult.exitCode !== 0) {
-        return yield* Effect.fail(
-          new AgentError({
-            message: `${provider.name} exited with code ${execResult.exitCode}:\n${execResult.stderr}`,
-          }),
-        );
+        const detail = execResult.stderr || resultText;
+        const message = detail
+          ? `${provider.name} exited with code ${execResult.exitCode}:\n${detail}`
+          : `${provider.name} exited with code ${execResult.exitCode}`;
+        return yield* Effect.fail(new AgentError({ message }));
       }
 
       return { result: resultText || execResult.stdout, sessionId };
