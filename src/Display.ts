@@ -146,7 +146,7 @@ export const FileDisplay = {
         const appendToLog = (line: string): Effect.Effect<void> =>
           fs
             .writeFileString(filePath, line + "\n", { flag: "a" })
-            .pipe(Effect.orDie);
+            .pipe(Effect.ignore);
 
         return {
           intro: () => Effect.void,
