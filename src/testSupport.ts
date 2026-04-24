@@ -59,6 +59,23 @@ export const clearRecordedInvocations = (): void => {
 };
 
 // -----------------------------------------------------------------------
+// Per-runName stdout override — allows tests to control the response
+// returned by the recording invoker for specific run names.
+// -----------------------------------------------------------------------
+
+let _stdoutByRunName: Record<string, string> | undefined;
+
+/**
+ * Set per-runName response overrides for the recording agent invoker.
+ * Pass `undefined` to clear all overrides.
+ */
+export const setStdoutByRunName = (
+  map: Record<string, string> | undefined,
+): void => {
+  _stdoutByRunName = map;
+};
+
+// -----------------------------------------------------------------------
 // Recording AgentInvoker layer
 // -----------------------------------------------------------------------
 
@@ -110,8 +127,12 @@ export const makeRecordingAgentInvokerLayer = (
           iterationIndex: iterationCounter,
         });
 
+        const response =
+          (context.runName && _stdoutByRunName?.[context.runName]) ??
+          `Agent completed. ${DEFAULT_COMPLETION_SIGNAL}`;
+
         return {
-          result: `Agent completed. ${DEFAULT_COMPLETION_SIGNAL}`,
+          result: response,
           sessionId: undefined,
         };
       }),
