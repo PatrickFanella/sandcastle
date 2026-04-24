@@ -1,4 +1,5 @@
 import { constants } from "node:fs";
+import type { FileHandle } from "node:fs/promises";
 import { mkdir, open, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { WorktreeLockError } from "./errors.js";
@@ -24,6 +25,41 @@ const isPidAlive = (pid: number): boolean => {
   }
 };
 
+const CREATE_FLAGS = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL;
+
+/**
+ * Remove a stale lock file, then retry atomic O_EXCL creation.
+ * If the retry loses a race (another process created the file first),
+ * throws a WorktreeLockError with the winner's diagnostic info.
+ */
+const removeStaleAndRetry = async (
+  lockPath: string,
+  worktreeName: string,
+): Promise<FileHandle> => {
+  await rm(lockPath, { force: true });
+  try {
+    return await open(lockPath, CREATE_FLAGS);
+  } catch (retryErr: unknown) {
+    if ((retryErr as NodeJS.ErrnoException).code !== "EEXIST") throw retryErr;
+    // Another process raced us and won — re-read to report contention
+    try {
+      const raw = await readFile(lockPath, "utf-8");
+      const winner = JSON.parse(raw) as LockData;
+      throw new WorktreeLockError({
+        message: `Worktree is in use by process ${winner.pid} (branch '${winner.branch}', acquired at ${winner.acquiredAt})`,
+        owningPid: winner.pid,
+        branch: winner.branch,
+        timestamp: winner.acquiredAt,
+      });
+    } catch (readErr) {
+      if (readErr instanceof WorktreeLockError) throw readErr;
+      throw new Error(
+        `Worktree lock already held for '${worktreeName}' (lock file: ${lockPath})`,
+      );
+    }
+  }
+};
+
 /**
  * Acquires a lock for a worktree using O_EXCL atomic file creation.
  * Creates the lockDir on first use.
@@ -40,82 +76,32 @@ export const acquire = async (
   await mkdir(lockDir, { recursive: true });
   const lockPath = join(lockDir, `${worktreeName}.lock`);
 
-  const tryCreate = async (): Promise<
-    import("node:fs/promises").FileHandle
-  > => {
-    return await open(
-      lockPath,
-      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL,
-    );
-  };
-
-  let fd;
+  let fd: FileHandle;
   try {
-    fd = await tryCreate();
+    fd = await open(lockPath, CREATE_FLAGS);
   } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException).code === "EEXIST") {
-      // Lock file exists — check PID liveness
-      let lockData: LockData;
-      try {
-        const raw = await readFile(lockPath, "utf-8");
-        lockData = JSON.parse(raw) as LockData;
-      } catch {
-        // Lock file is corrupt or unreadable — treat as stale
-        await rm(lockPath, { force: true });
-        try {
-          fd = await tryCreate();
-        } catch (retryErr: unknown) {
-          if ((retryErr as NodeJS.ErrnoException).code === "EEXIST") {
-            throw new Error(
-              `Worktree lock already held for '${worktreeName}' (lock file: ${lockPath})`,
-            );
-          }
-          throw retryErr;
-        }
-        // fd acquired after stale removal — fall through to write
-        lockData = undefined as unknown as LockData;
-      }
+    if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
 
-      if (lockData) {
-        if (isPidAlive(lockData.pid)) {
-          // Active contention — throw diagnostic error
-          throw new WorktreeLockError({
-            message: `Worktree is in use by process ${lockData.pid} (branch '${lockData.branch}', acquired at ${lockData.acquiredAt})`,
-            owningPid: lockData.pid,
-            branch: lockData.branch,
-            timestamp: lockData.acquiredAt,
-          });
-        }
-
-        // PID is dead — remove stale lock and retry
-        await rm(lockPath, { force: true });
-        try {
-          fd = await tryCreate();
-        } catch (retryErr: unknown) {
-          if ((retryErr as NodeJS.ErrnoException).code === "EEXIST") {
-            // Another process raced us and won — re-read to report contention
-            try {
-              const raw = await readFile(lockPath, "utf-8");
-              const newLock = JSON.parse(raw) as LockData;
-              throw new WorktreeLockError({
-                message: `Worktree is in use by process ${newLock.pid} (branch '${newLock.branch}', acquired at ${newLock.acquiredAt})`,
-                owningPid: newLock.pid,
-                branch: newLock.branch,
-                timestamp: newLock.acquiredAt,
-              });
-            } catch (readErr) {
-              if (readErr instanceof WorktreeLockError) throw readErr;
-              throw new Error(
-                `Worktree lock already held for '${worktreeName}' (lock file: ${lockPath})`,
-              );
-            }
-          }
-          throw retryErr;
-        }
-      }
-    } else {
-      throw err;
+    // Lock file exists — read and check PID liveness
+    let lockData: LockData | undefined;
+    try {
+      const raw = await readFile(lockPath, "utf-8");
+      lockData = JSON.parse(raw) as LockData;
+    } catch {
+      // Corrupt or unreadable — treat as stale
     }
+
+    if (lockData && isPidAlive(lockData.pid)) {
+      throw new WorktreeLockError({
+        message: `Worktree is in use by process ${lockData.pid} (branch '${lockData.branch}', acquired at ${lockData.acquiredAt})`,
+        owningPid: lockData.pid,
+        branch: lockData.branch,
+        timestamp: lockData.acquiredAt,
+      });
+    }
+
+    // Stale lock (corrupt, unreadable, or dead PID) — remove and retry
+    fd = await removeStaleAndRetry(lockPath, worktreeName);
   }
 
   const data: LockData = {
@@ -125,9 +111,9 @@ export const acquire = async (
   };
 
   try {
-    await fd!.writeFile(JSON.stringify(data, null, 2));
+    await fd.writeFile(JSON.stringify(data, null, 2));
   } finally {
-    await fd!.close();
+    await fd.close();
   }
 };
 
