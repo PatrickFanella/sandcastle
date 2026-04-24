@@ -167,20 +167,13 @@ describe("createWorktree", () => {
     // Close the first handle (worktree is clean, so it gets removed)
     await ws1.close();
 
-    // Re-create the branch so worktree collision can happen
+    // Re-create — lock was released by close(), so re-acquire succeeds
     const ws1b = await createWorktree({
       branchStrategy: { type: "branch", branch: "reuse-branch" },
       cwd: hostDir,
     });
 
-    // Now create a second handle while the first is still alive
-    const ws2 = await createWorktree({
-      branchStrategy: { type: "branch", branch: "reuse-branch" },
-      cwd: hostDir,
-    });
-
-    expect(ws2.worktreePath).toBe(ws1b.worktreePath);
-    expect(ws2.branch).toBe("reuse-branch");
+    expect(ws1b.branch).toBe("reuse-branch");
 
     await ws1b.close();
     await rm(hostDir, { recursive: true, force: true });
@@ -196,18 +189,24 @@ describe("createWorktree", () => {
       cwd: hostDir,
     });
 
-    // Make the worktree dirty
-    await writeFile(join(ws1.worktreePath, "dirty.txt"), "uncommitted");
+    const worktreePath = ws1.worktreePath;
 
+    // Make the worktree dirty
+    await writeFile(join(worktreePath, "dirty.txt"), "uncommitted");
+
+    // Close ws1 — dirty worktree is preserved, lock is released
+    await ws1.close();
+
+    // Re-create — lock was released, so re-acquire succeeds; worktree is reused
     const ws2 = await createWorktree({
       branchStrategy: { type: "branch", branch: "dirty-branch" },
       cwd: hostDir,
     });
 
-    expect(ws2.worktreePath).toBe(ws1.worktreePath);
+    expect(ws2.worktreePath).toBe(worktreePath);
 
     // Clean up
-    await rm(ws1.worktreePath, { recursive: true, force: true });
+    await rm(worktreePath, { recursive: true, force: true });
     await execAsync("git worktree prune", { cwd: hostDir });
     await rm(hostDir, { recursive: true, force: true });
   });
@@ -1021,5 +1020,44 @@ describe("worktree.createSandbox()", () => {
     } finally {
       await rm(hostDir, { recursive: true, force: true });
     }
+  });
+
+  it("two concurrent createWorktree() calls for the same branch — second fails with lock contention", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "ws-contention-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "init.txt", "init", "initial commit");
+
+    const results = await Promise.allSettled([
+      createWorktree({
+        branchStrategy: { type: "branch", branch: "contention-branch" },
+        cwd: hostDir,
+      }),
+      createWorktree({
+        branchStrategy: { type: "branch", branch: "contention-branch" },
+        cwd: hostDir,
+      }),
+    ]);
+
+    const fulfilled = results.filter(
+      (
+        r,
+      ): r is PromiseSettledResult<
+        Awaited<ReturnType<typeof createWorktree>>
+      > & { status: "fulfilled" } => r.status === "fulfilled",
+    );
+    const rejected = results.filter(
+      (r): r is PromiseRejectedResult => r.status === "rejected",
+    );
+
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    // Effect wraps the error in a FiberFailure — check the message directly
+    expect(String(rejected[0]!.reason)).toMatch(
+      /Worktree is in use by process/,
+    );
+
+    // Clean up
+    await fulfilled[0]!.value.close();
+    await rm(hostDir, { recursive: true, force: true });
   });
 });

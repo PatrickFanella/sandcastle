@@ -42,6 +42,7 @@ export const formatErrorMessage = (error: SandboxError): string => {
     case "MergeToHostTimeoutError":
     case "SessionCaptureError":
     case "CwdError":
+    case "WorktreeLockError":
       return error.message;
   }
 };
@@ -86,4 +87,5 @@ export const withFriendlyErrors = <A, E, R>(
     MergeToHostTimeoutError: showErrorAndExit,
     SessionCaptureError: showErrorAndExit,
     CwdError: showErrorAndExit,
+    WorktreeLockError: showErrorAndExit,
   }) as Effect.Effect<A, Exclude<E, SandboxError>, R | Display>;

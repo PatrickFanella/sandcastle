@@ -217,28 +217,42 @@ export const createWorktree = async (
     yield* WorktreeManager.pruneStale(hostRepoDir).pipe(
       Effect.catchAll(() => Effect.void),
     );
-    const info = yield* WorktreeManager.create(hostRepoDir, {
+
+    const lockDir = join(hostRepoDir, ".sandcastle", "locks");
+
+    // For named branches, acquire lock BEFORE create to serialize concurrent
+    // access.  acquire() uses O_EXCL for atomicity and checks PID liveness
+    // when a lock already exists — live PID → WorktreeLockError, dead PID →
+    // stale recovery.
+    if (branch) {
+      const worktreeName = branch.replace(/\//g, "-");
+      yield* Effect.promise(() => acquire(lockDir, worktreeName, branch));
+    }
+
+    const createEffect = WorktreeManager.create(hostRepoDir, {
       branch,
       baseBranch,
     });
-    // Only acquire the lock for newly-created worktrees. When WorktreeManager
-    // reuses an existing worktree (collision path), the existing handle still
-    // holds the lock — attempting to re-acquire would fail.
-    const lockFilePath = join(
-      hostRepoDir,
-      ".sandcastle",
-      "locks",
-      `${basename(info.path)}.lock`,
-    );
-    if (!existsSync(lockFilePath)) {
+    // If create fails and we hold a lock for a named branch, release it so
+    // the lock doesn't become stale.
+    const info = yield* branch
+      ? createEffect.pipe(
+          Effect.tapError(() =>
+            Effect.promise(() =>
+              release(lockDir, branch.replace(/\//g, "-")).catch(() => {}),
+            ),
+          ),
+        )
+      : createEffect;
+
+    // For merge-to-head, acquire lock AFTER create (unique names per call,
+    // no contention possible).
+    if (!branch) {
       yield* Effect.promise(() =>
-        acquire(
-          join(hostRepoDir, ".sandcastle", "locks"),
-          basename(info.path),
-          info.branch,
-        ),
+        acquire(lockDir, basename(info.path), info.branch),
       );
     }
+
     if (options.copyToWorktree && options.copyToWorktree.length > 0) {
       yield* copyToWorktree(options.copyToWorktree, hostRepoDir, info.path);
     }

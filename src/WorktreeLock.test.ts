@@ -1,9 +1,14 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { acquire, release, type LockData } from "./WorktreeLock.js";
+import {
+  acquire,
+  release,
+  WorktreeLockError,
+  type LockData,
+} from "./WorktreeLock.js";
 
 const makeTmpDir = async (): Promise<string> => {
   const dir = join(
@@ -56,13 +61,13 @@ describe("WorktreeLock", () => {
     }
   });
 
-  it("acquire fails if lock file already exists", async () => {
+  it("acquire fails if lock file already exists (live PID)", async () => {
     const lockDir = await makeTmpDir();
     try {
       await acquire(lockDir, "test-worktree", "my-branch");
       await expect(
         acquire(lockDir, "test-worktree", "my-branch"),
-      ).rejects.toThrow("Worktree lock already held for 'test-worktree'");
+      ).rejects.toThrow("Worktree is in use by process");
     } finally {
       await rm(lockDir, { recursive: true, force: true });
     }
@@ -78,6 +83,75 @@ describe("WorktreeLock", () => {
       expect(existsSync(lockPath)).toBe(true);
     } finally {
       await rm(baseDir, { recursive: true, force: true });
+    }
+  });
+
+  it("acquire throws WorktreeLockError with owning PID when lock held by live process", async () => {
+    const lockDir = await makeTmpDir();
+    try {
+      // Manually write a lock file with the current process PID (which is alive)
+      const lockPath = join(lockDir, "test-worktree.lock");
+      const lockData: LockData = {
+        pid: process.pid,
+        branch: "feature-x",
+        acquiredAt: "2026-01-15T10:00:00.000Z",
+      };
+      await writeFile(lockPath, JSON.stringify(lockData, null, 2));
+
+      const err = await acquire(lockDir, "test-worktree", "other-branch").catch(
+        (e) => e,
+      );
+
+      expect(err).toBeInstanceOf(WorktreeLockError);
+      expect(err.message).toContain(`process ${process.pid}`);
+      expect(err.message).toContain("feature-x");
+      expect(err.owningPid).toBe(process.pid);
+      expect(err.branch).toBe("feature-x");
+      expect(err.timestamp).toBe("2026-01-15T10:00:00.000Z");
+    } finally {
+      await rm(lockDir, { recursive: true, force: true });
+    }
+  });
+
+  it("acquire recovers stale lock when owning PID is dead", async () => {
+    const lockDir = await makeTmpDir();
+    try {
+      // Write a lock file with a PID that almost certainly doesn't exist
+      const lockPath = join(lockDir, "test-worktree.lock");
+      const staleLock: LockData = {
+        pid: 999999999,
+        branch: "stale-branch",
+        acquiredAt: "2025-01-01T00:00:00.000Z",
+      };
+      await writeFile(lockPath, JSON.stringify(staleLock, null, 2));
+
+      // acquire should succeed by removing the stale lock and re-acquiring
+      await acquire(lockDir, "test-worktree", "new-branch");
+
+      // Verify the new lock file has our PID
+      const data: LockData = JSON.parse(await readFile(lockPath, "utf-8"));
+      expect(data.pid).toBe(process.pid);
+      expect(data.branch).toBe("new-branch");
+    } finally {
+      await rm(lockDir, { recursive: true, force: true });
+    }
+  });
+
+  it("two concurrent acquire() calls for the same name — exactly one succeeds", async () => {
+    const lockDir = await makeTmpDir();
+    try {
+      const results = await Promise.allSettled([
+        acquire(lockDir, "race-worktree", "branch-a"),
+        acquire(lockDir, "race-worktree", "branch-b"),
+      ]);
+
+      const fulfilled = results.filter((r) => r.status === "fulfilled");
+      const rejected = results.filter((r) => r.status === "rejected");
+
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+    } finally {
+      await rm(lockDir, { recursive: true, force: true });
     }
   });
 });

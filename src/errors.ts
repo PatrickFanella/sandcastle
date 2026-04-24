@@ -159,6 +159,14 @@ export const withTimeout =
       }),
     );
 
+/** Worktree lock contention — another process holds the lock */
+export class WorktreeLockError extends Data.TaggedError("WorktreeLockError")<{
+  readonly message: string;
+  readonly owningPid: number;
+  readonly branch: string;
+  readonly timestamp: string;
+}> {}
+
 /** Session capture (read, rewrite, or write) failed */
 export class SessionCaptureError extends Data.TaggedError(
   "SessionCaptureError",
@@ -195,4 +203,5 @@ export type SandboxError =
   | PromptExpansionTimeoutError
   | CommitCollectionTimeoutError
   | MergeToHostTimeoutError
-  | SessionCaptureError;
+  | SessionCaptureError
+  | WorktreeLockError;
