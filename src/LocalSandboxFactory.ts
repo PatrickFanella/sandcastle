@@ -95,9 +95,7 @@ export const makeLocalSandboxFactoryLayer = (
               "git rev-parse --abbrev-ref HEAD",
               gitOpts,
             );
-            if (currentBranchOut.trim() === branch) {
-              // Requested branch is already checked out; no worktree needed.
-            } else {
+            if (currentBranchOut.trim() !== branch) {
               const worktreeDir = await mkdtemp(
                 join(tmpdir(), "local-sandbox-worktree-"),
               );

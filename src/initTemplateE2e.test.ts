@@ -110,23 +110,23 @@ describe("init-template e2e", () => {
     });
   });
 
+  const agents = listAgents();
+  const backlogManagers = listBacklogManagers();
+
+  const combinations = agents.flatMap((agent) =>
+    backlogManagers.map((bm) => ({
+      agentName: agent.name,
+      bmName: bm.name,
+    })),
+  );
+
+  /** Shell expression substrings expected per backlog manager. */
+  const shellExpressionsByBm: Record<string, string[]> = {
+    "github-issues": ["gh issue list", "gh issue close"],
+    beads: ["bd ready", "bd close"],
+  };
+
   describe("simple-loop template", () => {
-    const agents = listAgents();
-    const backlogManagers = listBacklogManagers();
-
-    const combinations = agents.flatMap((agent) =>
-      backlogManagers.map((bm) => ({
-        agentName: agent.name,
-        bmName: bm.name,
-      })),
-    );
-
-    /** Shell expression substrings expected per backlog manager. */
-    const shellExpressionsByBm: Record<string, string[]> = {
-      "github-issues": ["gh issue list", "gh issue close"],
-      beads: ["bd ready", "bd close"],
-    };
-
     describe.each(combinations)(
       "agent=$agentName, backlog-manager=$bmName",
       ({ agentName, bmName }) => {
@@ -196,22 +196,6 @@ describe("init-template e2e", () => {
   });
 
   describe("sequential-reviewer template", () => {
-    const agents = listAgents();
-    const backlogManagers = listBacklogManagers();
-
-    const combinations = agents.flatMap((agent) =>
-      backlogManagers.map((bm) => ({
-        agentName: agent.name,
-        bmName: bm.name,
-      })),
-    );
-
-    /** Shell expression substrings expected per backlog manager (implement prompt only). */
-    const shellExpressionsByBm: Record<string, string[]> = {
-      "github-issues": ["gh issue list", "gh issue close"],
-      beads: ["bd ready", "bd close"],
-    };
-
     describe.each(combinations)(
       "agent=$agentName, backlog-manager=$bmName",
       ({ agentName, bmName }) => {
