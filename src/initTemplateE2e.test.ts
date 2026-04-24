@@ -7,7 +7,7 @@
  */
 import { NodeFileSystem } from "@effect/platform-node";
 import { exec } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -190,6 +190,159 @@ describe("init-template e2e", () => {
 
           // Assert: only first iteration ran (completion signal on iteration 1)
           expect(invocation.iterationIndex).toBe(1);
+        });
+      },
+    );
+  });
+
+  describe("sequential-reviewer template", () => {
+    const agents = listAgents();
+    const backlogManagers = listBacklogManagers();
+
+    const combinations = agents.flatMap((agent) =>
+      backlogManagers.map((bm) => ({
+        agentName: agent.name,
+        bmName: bm.name,
+      })),
+    );
+
+    /** Shell expression substrings expected per backlog manager (implement prompt only). */
+    const shellExpressionsByBm: Record<string, string[]> = {
+      "github-issues": ["gh issue list", "gh issue close"],
+      beads: ["bd ready", "bd close"],
+    };
+
+    describe.each(combinations)(
+      "agent=$agentName, backlog-manager=$bmName",
+      ({ agentName, bmName }) => {
+        it("scaffolds and executes implement→review cycle", async () => {
+          const agent = getAgent(agentName)!;
+          const backlogManager = getBacklogManager(bmName)!;
+
+          // Scaffold the sequential-reviewer template
+          const result = await Effect.runPromise(
+            scaffold(scaffoldDir, {
+              agent,
+              model: agent.defaultModel,
+              templateName: "sequential-reviewer",
+              createLabel: true,
+              backlogManager,
+            }).pipe(Effect.provide(NodeFileSystem.layer)),
+          );
+
+          const mainFilePath = join(
+            scaffoldDir,
+            ".sandcastle",
+            result.mainFilename,
+          );
+
+          // Patch MAX_ITERATIONS to 1 so only one implement→review cycle runs.
+          // The template uses a for-loop; without this patch it would run 10
+          // cycles, each producing 2 recorded invocations.
+          let mainContent = await readFile(mainFilePath, "utf-8");
+          mainContent = mainContent.replace(
+            /const MAX_ITERATIONS = \d+;/,
+            "const MAX_ITERATIONS = 1;",
+          );
+          await writeFile(mainFilePath, mainContent);
+
+          // Read expected prompts from the scaffolded template files
+          const implementPromptPath = join(
+            scaffoldDir,
+            ".sandcastle",
+            "implement-prompt.md",
+          );
+          const reviewPromptPath = join(
+            scaffoldDir,
+            ".sandcastle",
+            "review-prompt.md",
+          );
+          const expectedImplementPrompt = await readFile(
+            implementPromptPath,
+            "utf-8",
+          );
+          const expectedReviewPromptRaw = await readFile(
+            reviewPromptPath,
+            "utf-8",
+          );
+
+          // Assert the implement prompt contains the backlog-manager's shell
+          // expressions (pre-expansion, since IdentityPromptPreprocessor is used)
+          for (const expr of shellExpressionsByBm[bmName]!) {
+            expect(expectedImplementPrompt).toContain(expr);
+          }
+
+          // chdir to the scaffold dir so relative prompt file paths resolve
+          process.chdir(scaffoldDir);
+
+          // Dynamically import the scaffolded main file.
+          await import(mainFilePath);
+
+          // Assert: exactly 2 recorded invocations (implement + review)
+          const invocations = getRecordedInvocations();
+          expect(invocations).toHaveLength(2);
+
+          // -----------------------------------------------------------------
+          // First invocation: implement phase
+          // -----------------------------------------------------------------
+          const implement = invocations[0]!;
+
+          // Agent provider matches the --agent choice
+          expect(implement.agentProvider).toBe(agentName);
+
+          // Model matches the agent's defaultModel
+          expect(implement.model).toBe(agent.defaultModel);
+
+          // Recorded prompt matches the scaffolded implement-prompt.md
+          expect(implement.prompt).toBe(expectedImplementPrompt);
+
+          // Branch strategy from the template (merge-to-head)
+          expect(implement.branchStrategy).toEqual({
+            type: "merge-to-head",
+          });
+
+          // maxIterations from the template (100)
+          expect(implement.maxIterations).toBe(100);
+
+          // Run name from the template
+          expect(implement.runName).toBe("implementer");
+
+          // No user-provided prompt args for the implement phase
+          expect(implement.promptArgs).toEqual({});
+
+          // -----------------------------------------------------------------
+          // Second invocation: review phase
+          // -----------------------------------------------------------------
+          const review = invocations[1]!;
+
+          // Agent provider matches the --agent choice
+          expect(review.agentProvider).toBe(agentName);
+
+          // Model matches the agent's defaultModel
+          expect(review.model).toBe(agent.defaultModel);
+
+          // Review prompt has {{BRANCH}} substituted with the branch name.
+          // The implement result branch is "main" (the scaffoldDir's branch).
+          const expectedReviewPrompt = expectedReviewPromptRaw.replace(
+            /\{\{BRANCH\}\}/g,
+            "main",
+          );
+          expect(review.prompt).toBe(expectedReviewPrompt);
+
+          // Branch strategy: explicit branch targeting the implement branch
+          expect(review.branchStrategy).toEqual({
+            type: "branch",
+            branch: "main",
+          });
+
+          // maxIterations from the template (1)
+          expect(review.maxIterations).toBe(1);
+
+          // Run name from the template
+          expect(review.runName).toBe("reviewer");
+
+          // Prompt args: BRANCH is passed through
+          expect(review.promptArgs).toEqual({ BRANCH: "main" });
         });
       },
     );

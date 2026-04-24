@@ -91,22 +91,30 @@ export const makeLocalSandboxFactoryLayer = (
             workDir = worktreeDir;
           } else if (options.branchStrategy.type === "branch") {
             const branch = options.branchStrategy.branch;
-            const worktreeDir = await mkdtemp(
-              join(tmpdir(), "local-sandbox-worktree-"),
+            const { stdout: currentBranchOut } = await execAsync(
+              "git rev-parse --abbrev-ref HEAD",
+              gitOpts,
             );
-            // Try to check out existing branch, else create new
-            try {
-              await execAsync(
-                `git worktree add "${worktreeDir}" "${branch}"`,
-                gitOpts,
+            if (currentBranchOut.trim() === branch) {
+              // Requested branch is already checked out; no worktree needed.
+            } else {
+              const worktreeDir = await mkdtemp(
+                join(tmpdir(), "local-sandbox-worktree-"),
               );
-            } catch {
-              await execAsync(
-                `git worktree add -b "${branch}" "${worktreeDir}" HEAD`,
-                gitOpts,
-              );
+              // Try to check out existing branch, else create new
+              try {
+                await execAsync(
+                  `git worktree add "${worktreeDir}" "${branch}"`,
+                  gitOpts,
+                );
+              } catch {
+                await execAsync(
+                  `git worktree add -b "${branch}" "${worktreeDir}" HEAD`,
+                  gitOpts,
+                );
+              }
+              workDir = worktreeDir;
             }
-            workDir = worktreeDir;
           }
 
           return { sandboxDir, workDir };

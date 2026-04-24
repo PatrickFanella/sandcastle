@@ -252,6 +252,14 @@ export const runForTest = async (options: RunOptions): Promise<RunResult> => {
 
   return {
     ...result,
+    // In the test environment the recording invoker doesn't make real git
+    // commits, so result.commits is always empty. Inject a synthetic commit
+    // so templates that guard on commits.length (e.g. sequential-reviewer's
+    // "skip review if no commits") can proceed past the guard.
+    commits:
+      result.commits.length > 0
+        ? result.commits
+        : [{ sha: "synthetic-test-commit" }],
     logFilePath: undefined,
   };
 };
