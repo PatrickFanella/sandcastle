@@ -1421,6 +1421,18 @@ describe("InitService scaffold", () => {
       expect(prompt).not.toContain("{{CLOSE_TASK_COMMAND}}");
     });
 
+    it("parallel-planner implement-prompt does not contain close-issue instruction", async () => {
+      const dir = await makeDir();
+      await runScaffold(dir, { templateName: "parallel-planner" });
+
+      const prompt = await readFile(
+        join(dir, ".sandcastle", "implement-prompt.md"),
+        "utf-8",
+      );
+      expect(prompt).not.toContain("close the issue when done");
+      expect(prompt).not.toContain("{{CLOSE_TASK_COMMAND}}");
+    });
+
     it("parallel-planner implement-prompt uses backlog-agnostic language", async () => {
       const dir = await makeDir();
       await runScaffold(dir, {
@@ -1484,6 +1496,20 @@ describe("InitService scaffold", () => {
       expect(main).not.toContain("number: number");
       expect(main).not.toContain("ISSUE_NUMBER");
       expect(main).not.toContain("`  #${");
+    });
+
+    it("parallel-planner-with-review implement-prompt does not contain close-issue instruction", async () => {
+      const dir = await makeDir();
+      await runScaffold(dir, {
+        templateName: "parallel-planner-with-review",
+      });
+
+      const prompt = await readFile(
+        join(dir, ".sandcastle", "implement-prompt.md"),
+        "utf-8",
+      );
+      expect(prompt).not.toContain("close the issue when done");
+      expect(prompt).not.toContain("{{CLOSE_TASK_COMMAND}}");
     });
 
     it("parallel-planner-with-review implement-prompt uses TASK_ID placeholder", async () => {
