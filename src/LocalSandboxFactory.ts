@@ -66,7 +66,14 @@ export const makeLocalSandboxFactoryLayer = (
           await execAsync('git config user.email "test@sandcastle.local"', gitOpts);
           await execAsync('git config user.name "Sandcastle Test"', gitOpts);
           await writeFile(join(sandboxDir, ".gitkeep"), "");
-          await execAsync("git add .gitkeep", gitOpts);
+          // Seed a minimal package.json so that template hooks like
+          // onSandboxReady: [{ command: "npm install" }] don't fail
+          // in the bare test repo.
+          await writeFile(
+            join(sandboxDir, "package.json"),
+            '{ "name": "test-sandbox", "private": true }\n',
+          );
+          await execAsync("git add .gitkeep package.json", gitOpts);
           await execAsync('git commit -m "initial commit"', gitOpts);
 
           // Set up worktree / branch per strategy

@@ -73,9 +73,11 @@ const extractModelFromProvider = (provider: AgentProvider): string => {
       prompt: "",
       dangerouslySkipPermissions: false,
     });
-    const match = cmd.command.match(/--model\s+'([^']+)'/);
+    // Match --model 'quoted' or -m 'quoted'
+    const match = cmd.command.match(/(?:--model|-m)\s+'([^']+)'/);
     if (match) return match[1]!;
-    const match2 = cmd.command.match(/--model\s+(\S+)/);
+    // Match --model unquoted or -m unquoted
+    const match2 = cmd.command.match(/(?:--model|-m)\s+(\S+)/);
     if (match2) return match2[1]!;
   } catch {}
   return "unknown";

@@ -17,6 +17,8 @@ import {
   scaffold,
   getAgent,
   getBacklogManager,
+  listAgents,
+  listBacklogManagers,
 } from "./InitService.js";
 import {
   clearRecordedInvocations,
@@ -106,5 +108,90 @@ describe("init-template e2e", () => {
       expect(invocation.maxIterations).toBe(1);
       expect(invocation.iterationIndex).toBe(1);
     });
+  });
+
+  describe("simple-loop template", () => {
+    const agents = listAgents();
+    const backlogManagers = listBacklogManagers();
+
+    const combinations = agents.flatMap((agent) =>
+      backlogManagers.map((bm) => ({
+        agentName: agent.name,
+        bmName: bm.name,
+      })),
+    );
+
+    /** Shell expression substrings expected per backlog manager. */
+    const shellExpressionsByBm: Record<string, string[]> = {
+      "github-issues": ["gh issue list", "gh issue close"],
+      beads: ["bd ready", "bd close"],
+    };
+
+    describe.each(combinations)(
+      "agent=$agentName, backlog-manager=$bmName",
+      ({ agentName, bmName }) => {
+        it("scaffolds and executes with iterate-until-COMPLETE wiring", async () => {
+          const agent = getAgent(agentName)!;
+          const backlogManager = getBacklogManager(bmName)!;
+
+          // Scaffold the simple-loop template
+          const result = await Effect.runPromise(
+            scaffold(scaffoldDir, {
+              agent,
+              model: agent.defaultModel,
+              templateName: "simple-loop",
+              createLabel: true,
+              backlogManager,
+            }).pipe(Effect.provide(NodeFileSystem.layer)),
+          );
+
+          // Read the expected prompt content
+          const promptPath = join(scaffoldDir, ".sandcastle", "prompt.md");
+          const expectedPrompt = await readFile(promptPath, "utf-8");
+
+          // Assert the prompt contains the backlog-manager's shell expressions
+          for (const expr of shellExpressionsByBm[bmName]!) {
+            expect(expectedPrompt).toContain(expr);
+          }
+
+          // chdir to the scaffold dir so relative prompt file paths resolve
+          process.chdir(scaffoldDir);
+
+          // Dynamically import the scaffolded main file.
+          const mainFilePath = join(
+            scaffoldDir,
+            ".sandcastle",
+            result.mainFilename,
+          );
+          await import(mainFilePath);
+
+          // Assert: only one recorded invocation (completion signal stops loop)
+          const invocations = getRecordedInvocations();
+          expect(invocations).toHaveLength(1);
+
+          const invocation = invocations[0]!;
+
+          // Assert: agent provider matches the --agent choice
+          expect(invocation.agentProvider).toBe(agentName);
+
+          // Assert: model matches the agent's defaultModel
+          expect(invocation.model).toBe(agent.defaultModel);
+
+          // Assert: recorded prompt matches the scaffolded prompt
+          expect(invocation.prompt).toBe(expectedPrompt);
+
+          // Assert: branch strategy from the template (merge-to-head)
+          expect(invocation.branchStrategy).toEqual({
+            type: "merge-to-head",
+          });
+
+          // Assert: maxIterations from the template (3)
+          expect(invocation.maxIterations).toBe(3);
+
+          // Assert: only first iteration ran (completion signal on iteration 1)
+          expect(invocation.iterationIndex).toBe(1);
+        });
+      },
+    );
   });
 });
