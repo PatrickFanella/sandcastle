@@ -7,9 +7,9 @@ import { WorktreeLockError } from "./errors.js";
 export { WorktreeLockError };
 
 export interface LockData {
-  pid: number;
-  branch: string;
-  acquiredAt: string;
+  readonly pid: number;
+  readonly branch: string;
+  readonly acquiredAt: string;
 }
 
 /**

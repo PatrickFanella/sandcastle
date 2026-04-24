@@ -281,22 +281,8 @@ export const pruneStale = (
     // Let git clean up metadata for worktrees whose directories are gone
     yield* execGit(["worktree", "prune"], repoDir);
 
-    const worktreesDir = join(repoDir, ".sandcastle", "worktrees");
-
-    // Read directory entries — return null if directory doesn't exist
-    const entries: string[] | null = yield* fs.readDirectory(worktreesDir).pipe(
-      Effect.map((es): string[] | null => es),
-      Effect.catchSome((e) =>
-        e._tag === "SystemError" && e.reason === "NotFound"
-          ? Option.some(Effect.succeed(null as string[] | null))
-          : Option.none(),
-      ),
-      Effect.mapError((e) => new WorktreeError({ message: e.message })),
-    );
-
-    if (entries === null) return;
-
-    // Get the list of active worktree paths from git
+    // Get the list of active worktree paths from git (needed for both
+    // directory cleanup and lock pruning)
     const worktreeList = yield* execGit(
       ["worktree", "list", "--porcelain"],
       repoDir,
@@ -308,22 +294,37 @@ export const pruneStale = (
         .map((line) => line.slice("worktree ".length).trim()),
     );
 
-    // Remove any directory under .sandcastle/worktrees/ that is not an active worktree
-    for (const entry of entries) {
-      const entryPath = join(worktreesDir, entry);
-      const isDir = yield* fs.stat(entryPath).pipe(
-        Effect.map((s) => s.type === "Directory"),
-        Effect.catchAll(() => Effect.succeed(false)),
-      );
-      if (isDir && !activeWorktreePaths.has(entryPath)) {
-        yield* fs.remove(entryPath, { recursive: true, force: true }).pipe(
-          Effect.mapError(
-            (e) =>
-              new WorktreeError({
-                message: `Failed to remove ${entryPath}: ${e.message}`,
-              }),
-          ),
+    const worktreesDir = join(repoDir, ".sandcastle", "worktrees");
+
+    // Read directory entries — skip directory cleanup if directory doesn't exist
+    const entries: string[] | null = yield* fs.readDirectory(worktreesDir).pipe(
+      Effect.map((es): string[] | null => es),
+      Effect.catchSome((e) =>
+        e._tag === "SystemError" && e.reason === "NotFound"
+          ? Option.some(Effect.succeed(null as string[] | null))
+          : Option.none(),
+      ),
+      Effect.mapError((e) => new WorktreeError({ message: e.message })),
+    );
+
+    if (entries !== null) {
+      // Remove any directory under .sandcastle/worktrees/ that is not an active worktree
+      for (const entry of entries) {
+        const entryPath = join(worktreesDir, entry);
+        const isDir = yield* fs.stat(entryPath).pipe(
+          Effect.map((s) => s.type === "Directory"),
+          Effect.catchAll(() => Effect.succeed(false)),
         );
+        if (isDir && !activeWorktreePaths.has(entryPath)) {
+          yield* fs.remove(entryPath, { recursive: true, force: true }).pipe(
+            Effect.mapError(
+              (e) =>
+                new WorktreeError({
+                  message: `Failed to remove ${entryPath}: ${e.message}`,
+                }),
+            ),
+          );
+        }
       }
     }
 
