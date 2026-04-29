@@ -38,20 +38,9 @@ export interface SessionStore {
  * Replaces path separators with hyphens, matching Claude Code's convention.
  */
 export const encodeProjectPath = (cwd: string): string => {
-  // Preserve lone roots: "/" stays as "/", "X:\" stays as "X:\"
-  const isDriveRoot = /^[A-Za-z]:[\\/]?$/.test(cwd);
-  const isUnixRoot = cwd === "/";
-  let normalized: string;
-  if (isUnixRoot || isDriveRoot) {
-    normalized = cwd;
-  } else {
-    // Strip trailing path separators for non-root paths
-    normalized = cwd.replace(/[\\/]+$/, "");
-  }
-  // Strip drive-letter colon (e.g. "D:" → "D", "D:\foo" → "D\foo")
-  normalized = normalized.replace(/^([A-Za-z]):/, "$1");
-  // Replace all path separators (both / and \) with hyphens
-  return normalized.replace(/[\\/]/g, "-");
+  const isRoot = cwd === "/" || /^[A-Za-z]:[\\/]?$/.test(cwd);
+  const normalized = isRoot ? cwd : cwd.replace(/[\\/]+$/, "");
+  return normalized.replace(/^([A-Za-z]):/, "$1").replace(/[\\/]/g, "-");
 };
 
 // ---------------------------------------------------------------------------
