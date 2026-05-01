@@ -753,6 +753,26 @@ describe("InitService scaffold", () => {
     expect(prompt).toContain("gh issue list");
   });
 
+  it("scaffolded prompts that lack a runtime TASK_ID do not contain {{TASK_ID}}", async () => {
+    // Regression test for #477: the {{TASK_ID}} placeholder inside
+    // VIEW_TASK_COMMAND / CLOSE_TASK_COMMAND used to leak into prompts
+    // whose runtime promptArgs do not include TASK_ID (simple-loop,
+    // sequential-reviewer's implement, parallel-planner*'s merge),
+    // causing PromptArgumentSubstitution to throw on every iteration.
+    const cases: Array<{ template: string; file: string }> = [
+      { template: "simple-loop", file: "prompt.md" },
+      { template: "sequential-reviewer", file: "implement-prompt.md" },
+      { template: "parallel-planner", file: "merge-prompt.md" },
+      { template: "parallel-planner-with-review", file: "merge-prompt.md" },
+    ];
+    for (const { template, file } of cases) {
+      const dir = await makeDir();
+      await runScaffold(dir, { templateName: template });
+      const prompt = await readFile(join(dir, ".sandcastle", file), "utf-8");
+      expect(prompt, `${template}/${file}`).not.toContain("{{TASK_ID}}");
+    }
+  });
+
   it("createLabel defaults to true (label retained when not specified)", async () => {
     const dir = await makeDir();
     await runScaffold(dir, { templateName: "simple-loop" });
