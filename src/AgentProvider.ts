@@ -21,7 +21,11 @@ const TOOL_ARG_FIELDS: Record<string, string> = {
 const extractErrorMessage = (obj: any): string | undefined => {
   const err = obj.error;
   if (typeof err === "string") return err;
-  if (typeof err === "object" && err !== null && typeof err.message === "string") {
+  if (
+    typeof err === "object" &&
+    err !== null &&
+    typeof err.message === "string"
+  ) {
     return err.message;
   }
   if (typeof obj.message === "string") return obj.message;
@@ -330,6 +334,86 @@ export const opencode = (
 
   parseStreamLine(_line: string): ParsedStreamEvent[] {
     return [];
+  },
+});
+
+/** Options for the OpenCode service-backed agent provider. */
+export type OpenCodeServiceRole =
+  | "planner"
+  | "implementer"
+  | "reviewer"
+  | "merger";
+
+export interface OpenCodeServiceOptions {
+  /** Path to the service wrapper script, relative to the sandbox repo root. */
+  readonly scriptPath?: string;
+  /** Role metadata passed to the wrapper for model/env lookup and session titles. */
+  readonly role?: OpenCodeServiceRole;
+  /** Human-readable title metadata passed to the wrapper. */
+  readonly title?: string;
+  /** Exact OpenCode model id in provider/model format. */
+  readonly model?: string;
+  /** Environment variable name containing the exact OpenCode model id. */
+  readonly modelEnv?: string;
+  /** Environment variables injected by this agent provider. */
+  readonly env?: Record<string, string>;
+}
+
+const defaultOpenCodeServiceScript = ".sandcastle/opencode-service-agent.mts";
+
+const parseOpenCodeServiceStreamLine = (line: string): ParsedStreamEvent[] => {
+  let event: unknown;
+
+  try {
+    event = JSON.parse(line);
+  } catch {
+    return [];
+  }
+
+  if (!event || typeof event !== "object") return [];
+
+  const record = event as Record<string, unknown>;
+
+  if (record.type === "result" && typeof record.result === "string") {
+    return [{ type: "result", result: record.result }];
+  }
+
+  if (record.type === "text" && typeof record.text === "string") {
+    return [{ type: "text", text: record.text }];
+  }
+
+  return [];
+};
+
+export const opencodeService = (
+  options?: OpenCodeServiceOptions,
+): AgentProvider => ({
+  name: "opencode-service",
+  env: options?.env ?? {},
+  captureSessions: false,
+
+  buildPrintCommand({ prompt }: AgentCommandOptions): PrintCommand {
+    const args = [
+      "npx",
+      "--yes",
+      "tsx",
+      options?.scriptPath ?? defaultOpenCodeServiceScript,
+      "--jsonl",
+    ];
+
+    if (options?.role) args.push("--role", options.role);
+    if (options?.title) args.push("--title", options.title);
+    if (options?.model) args.push("--model", options.model);
+    if (options?.modelEnv) args.push("--model-env", options.modelEnv);
+
+    return {
+      command: args.map(shellEscape).join(" "),
+      stdin: prompt,
+    };
+  },
+
+  parseStreamLine(line: string): ParsedStreamEvent[] {
+    return parseOpenCodeServiceStreamLine(line);
   },
 });
 

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { claudeCode, codex, opencode, pi } from "./AgentProvider.js";
+import {
+  claudeCode,
+  codex,
+  opencode,
+  opencodeService,
+  pi,
+} from "./AgentProvider.js";
 import type { AgentCommandOptions } from "./AgentProvider.js";
 
 /** Shorthand: build options with dangerouslySkipPermissions: true (mirrors existing sandbox callers). */
@@ -777,6 +783,118 @@ describe("opencode factory", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// opencodeService factory
+// ---------------------------------------------------------------------------
+
+describe("opencodeService factory", () => {
+  it("returns a provider with name 'opencode-service'", () => {
+    const provider = opencodeService({ role: "planner" });
+    expect(provider.name).toBe("opencode-service");
+  });
+
+  it("does not expose envManifest or dockerfileTemplate", () => {
+    const provider = opencodeService({ role: "planner" });
+    expect(provider).not.toHaveProperty("envManifest");
+    expect(provider).not.toHaveProperty("dockerfileTemplate");
+  });
+
+  it("disables session capture", () => {
+    const provider = opencodeService({ role: "planner" });
+    expect(provider.captureSessions).toBe(false);
+  });
+
+  it("buildPrintCommand uses the service wrapper and stdin prompt", () => {
+    const provider = opencodeService({ role: "planner", title: "plan" });
+    const { command, stdin } = provider.buildPrintCommand(opts("do something"));
+
+    expect(command).toContain("'npx' '--yes' 'tsx'");
+    expect(command).toContain("'.sandcastle/opencode-service-agent.mts'");
+    expect(command).toContain("'--jsonl'");
+    expect(command).toContain("'--role' 'planner'");
+    expect(command).toContain("'--title' 'plan'");
+    expect(command).not.toContain("'do something'");
+    expect(stdin).toBe("do something");
+  });
+
+  it("buildPrintCommand accepts custom script path and model controls", () => {
+    const provider = opencodeService({
+      scriptPath: ".sandcastle/custom-wrapper.mts",
+      role: "implementer",
+      title: "Fix auth",
+      model: "openai/gpt-5.5",
+      modelEnv: "CUSTOM_MODEL",
+    });
+
+    const { command } = provider.buildPrintCommand(opts("test"));
+
+    expect(command).toContain("'.sandcastle/custom-wrapper.mts'");
+    expect(command).toContain("'--role' 'implementer'");
+    expect(command).toContain("'--title' 'Fix auth'");
+    expect(command).toContain("'--model' 'openai/gpt-5.5'");
+    expect(command).toContain("'--model-env' 'CUSTOM_MODEL'");
+  });
+
+  it("buildPrintCommand shell-escapes metadata", () => {
+    const provider = opencodeService({
+      role: "reviewer",
+      title: "it's tricky",
+      model: "github-copilot/claude-opus-4.7",
+    });
+
+    const { command } = provider.buildPrintCommand(opts("test"));
+
+    expect(command).toContain("'it'\\''s tricky'");
+    expect(command).toContain("'github-copilot/claude-opus-4.7'");
+  });
+
+  it("parseStreamLine extracts result events", () => {
+    const provider = opencodeService({ role: "planner" });
+    const line = JSON.stringify({ type: "result", result: "done" });
+    expect(provider.parseStreamLine(line)).toEqual([
+      { type: "result", result: "done" },
+    ]);
+  });
+
+  it("parseStreamLine extracts text events", () => {
+    const provider = opencodeService({ role: "planner" });
+    const line = JSON.stringify({ type: "text", text: "hello" });
+    expect(provider.parseStreamLine(line)).toEqual([
+      { type: "text", text: "hello" },
+    ]);
+  });
+
+  it("parseStreamLine ignores status, heartbeat, non-JSON, and malformed lines", () => {
+    const provider = opencodeService({ role: "planner" });
+
+    expect(
+      provider.parseStreamLine(
+        JSON.stringify({ type: "status", message: "ok" }),
+      ),
+    ).toEqual([]);
+    expect(
+      provider.parseStreamLine(
+        JSON.stringify({ type: "heartbeat", message: "waiting" }),
+      ),
+    ).toEqual([]);
+    expect(provider.parseStreamLine("not json")).toEqual([]);
+    expect(provider.parseStreamLine("{bad json")).toEqual([]);
+  });
+
+  it("accepts an env option and exposes it on the provider", () => {
+    const provider = opencodeService({
+      role: "planner",
+      env: { OPENCODE_SERVER_PASSWORD: "secret" },
+    });
+    expect(provider.env).toEqual({ OPENCODE_SERVER_PASSWORD: "secret" });
+  });
+
+  it("defaults env to empty object when not provided", () => {
+    const provider = opencodeService({ role: "planner" });
+    expect(provider.env).toEqual({});
+  });
+});
+
 describe("resumeSession on non-Claude providers", () => {
   it("pi ignores resumeSession in buildPrintCommand", () => {
     const provider = pi("claude-sonnet-4-6");
@@ -802,6 +920,17 @@ describe("resumeSession on non-Claude providers", () => {
 
   it("opencode ignores resumeSession in buildPrintCommand", () => {
     const provider = opencode("opencode/big-pickle");
+    const { command } = provider.buildPrintCommand({
+      prompt: "test",
+      dangerouslySkipPermissions: true,
+      resumeSession: "abc-123",
+    });
+    expect(command).not.toContain("--resume");
+    expect(command).not.toContain("abc-123");
+  });
+
+  it("opencodeService ignores resumeSession in buildPrintCommand", () => {
+    const provider = opencodeService({ role: "planner" });
     const { command } = provider.buildPrintCommand({
       prompt: "test",
       dangerouslySkipPermissions: true,
