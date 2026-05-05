@@ -1,10 +1,12 @@
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
+import { cp, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SANDBOX_REPO_DIR } from "./SandboxFactory.js";
 
 const GITIGNORE = `.env
+opencode/auth.json
 logs/
 worktrees/
 `;
@@ -37,6 +39,11 @@ const TEMPLATES: TemplateMetadata[] = [
     name: "parallel-planner-with-review",
     description:
       "Plans parallelizable issues, executes with per-branch review, merges",
+  },
+  {
+    name: "parallel-planner-with-review-opencode",
+    description:
+      "Plans parallelizable issues, executes with per-branch OpenCode review, merges",
   },
 ];
 
@@ -292,6 +299,9 @@ export const getBacklogManager = (
 export const getAgent = (name: string): AgentEntry | undefined =>
   AGENT_REGISTRY.find((a) => a.name === name);
 
+const isOpenCodeTemplate = (templateName: string): boolean =>
+  templateName.endsWith("-opencode");
+
 // ---------------------------------------------------------------------------
 // Sandbox provider registry (internal — not part of public API)
 // ---------------------------------------------------------------------------
@@ -421,13 +431,33 @@ const copyTemplateFiles = (
         )
         .map((f) => {
           const destName = f === "main.mts" ? mainFilename : f;
-          return fs
-            .copyFile(join(templateDir, f), join(destDir, destName))
-            .pipe(Effect.mapError((e) => new Error(e.message)));
+          return Effect.tryPromise({
+            try: () =>
+              cp(join(templateDir, f), join(destDir, destName), {
+                recursive: true,
+              }),
+            catch: (e) => new Error((e as Error).message),
+          });
         }),
       { concurrency: "unbounded" },
     );
   });
+
+const readTemplateEnvExample = (
+  templateDir: string,
+): Effect.Effect<string, Error, never> =>
+  Effect.tryPromise({
+    try: async () => readFile(join(templateDir, ".env.example"), "utf8"),
+    catch: (e) => {
+      const error = e as NodeJS.ErrnoException;
+      if (error.code === "ENOENT") return new Error("");
+      return new Error(error.message);
+    },
+  }).pipe(
+    Effect.catchAll((error) =>
+      error.message === "" ? Effect.succeed("") : Effect.fail(error),
+    ),
+  );
 
 /**
  * Replace the agent factory import and call in a scaffolded main.ts.
@@ -632,6 +662,14 @@ export const scaffold = (
     const fs = yield* FileSystem.FileSystem;
     const configDir = join(repoDir, ".sandcastle");
 
+    if (isOpenCodeTemplate(templateName) && agent.name !== "opencode") {
+      yield* Effect.fail(
+        new Error(
+          `Template "${templateName}" requires the opencode agent so the sandbox image includes the OpenCode CLI. Re-run init with --agent opencode.`,
+        ),
+      );
+    }
+
     const exists = yield* fs
       .exists(configDir)
       .pipe(Effect.mapError((e) => new Error(e.message)));
@@ -651,10 +689,14 @@ export const scaffold = (
 
     const templateDir = yield* getTemplateDir(templateName);
 
-    // Build .env.example from agent + backlog manager env blocks
+    // Build .env.example from agent + backlog manager + template env blocks.
+    const templateEnvExample = yield* readTemplateEnvExample(templateDir);
     const envExampleParts = [agent.envExample];
     if (backlogManager.envExample) {
       envExampleParts.push(backlogManager.envExample);
+    }
+    if (templateEnvExample.trim()) {
+      envExampleParts.push(templateEnvExample.trimEnd());
     }
     const envExampleContent = envExampleParts.join("\n") + "\n";
 

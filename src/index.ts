@@ -46,6 +46,7 @@ export type { SandboxHooks } from "./SandboxLifecycle.js";
 export type { MountConfig } from "./MountConfig.js";
 export { CwdError } from "./resolveCwd.js";
 export { claudeCode, codex, opencode, pi } from "./AgentProvider.js";
+export { opencodeService } from "./AgentProvider.js";
 export type {
   AgentProvider,
   AgentCommandOptions,
@@ -53,6 +54,8 @@ export type {
   ClaudeCodeOptions,
   CodexOptions,
   OpenCodeOptions,
+  OpenCodeServiceRole,
+  OpenCodeServiceOptions,
   PiOptions,
 } from "./AgentProvider.js";
 export {

@@ -594,15 +594,16 @@ Tell the agent to output your chosen string(s) in the prompt, and the orchestrat
 
 `sandcastle init` prompts you to choose a sandbox provider (Docker or Podman), a backlog manager (GitHub Issues or Beads), and a template, which scaffolds a ready-to-use prompt and `main.mts` suited to a specific workflow. If your project's `package.json` has `"type": "module"`, the file will be named `main.ts` instead. Five templates are available:
 
-| Template                       | Description                                                               |
-| ------------------------------ | ------------------------------------------------------------------------- |
-| `blank`                        | Bare scaffold — write your own prompt and orchestration                   |
-| `simple-loop`                  | Picks GitHub issues one by one and closes them                            |
-| `sequential-reviewer`          | Implements issues one by one, with a code review step after each          |
-| `parallel-planner`             | Plans parallelizable issues, executes on separate branches, then merges   |
-| `parallel-planner-with-review` | Plans parallelizable issues, executes with per-branch review, then merges |
+| Template                                | Description                                                               |
+| --------------------------------------- | ------------------------------------------------------------------------- |
+| `blank`                                 | Bare scaffold — write your own prompt and orchestration                   |
+| `simple-loop`                           | Picks GitHub issues one by one and closes them                            |
+| `sequential-reviewer`                   | Implements issues one by one, with a code review step after each          |
+| `parallel-planner`                      | Plans parallelizable issues, executes on separate branches, then merges   |
+| `parallel-planner-with-review`          | Plans parallelizable issues, executes with per-branch review, then merges |
+| `parallel-planner-with-review-opencode` | OpenCode service-backed parallel planner, per-branch review, then merges  |
 
-Select a template during `sandcastle init` when prompted, or re-run init in a fresh repo to try a different one.
+Select a template during `sandcastle init` when prompted, or re-run init in a fresh repo to try a different one. `*-opencode` templates require `--agent opencode` so the generated sandbox image includes the OpenCode CLI.
 
 ## CLI commands
 
@@ -626,6 +627,10 @@ Creates the following files:
 ├── .env.example    # Token placeholders
 └── .gitignore      # Ignores .env, logs/
 ```
+
+OpenCode `*-opencode` templates also scaffold an OpenCode config under
+`.sandcastle/opencode/` and a service wrapper at
+`.sandcastle/opencode-service-agent.mts`.
 
 Errors if `.sandcastle/` already exists to prevent overwriting customizations.
 
@@ -767,6 +772,40 @@ agent: codex("gpt-5.4", { effort: "high" });
 | -------- | ---------------------------------------------- | ------- | --------------------------------------------------------- |
 | `effort` | `"low"` \| `"medium"` \| `"high"` \| `"xhigh"` | —       | Codex reasoning effort level via `model_reasoning_effort` |
 | `env`    | `Record<string, string>`                       | `{}`    | Environment variables injected by this agent provider     |
+
+### `OpenCodeServiceOptions`
+
+`opencodeService()` is a service-backed OpenCode agent provider for templates
+that need clean stdout and long-running sandbox-local OpenCode state. It starts
+or reuses `opencode serve` inside the sandbox on `127.0.0.1:4096`, creates a
+fresh OpenCode session for each Sandcastle agent run, sends the prompt over
+stdin/HTTP, and emits final assistant text back to Sandcastle.
+
+```typescript
+agent: opencodeService({ role: "implementer", title: "Fix auth bug" });
+```
+
+| Option       | Type                                                         | Default                                  | Description                                               |
+| ------------ | ------------------------------------------------------------ | ---------------------------------------- | --------------------------------------------------------- |
+| `scriptPath` | `string`                                                     | `.sandcastle/opencode-service-agent.mts` | Sandbox-relative wrapper script path                      |
+| `role`       | `"planner"` \| `"implementer"` \| `"reviewer"` \| `"merger"` | —                                        | Role for session title and role-specific model env lookup |
+| `title`      | `string`                                                     | —                                        | Human-readable session title suffix                       |
+| `model`      | `string`                                                     | —                                        | Exact OpenCode model id in `<provider>/<model>` format    |
+| `modelEnv`   | `string`                                                     | —                                        | Env var containing an exact OpenCode model id             |
+| `env`        | `Record<string, string>`                                     | `{}`                                     | Environment variables injected by this agent provider     |
+
+Model precedence in the wrapper is explicit `model`, then `modelEnv`, then the
+role-specific env vars `SANDCASTLE_OPENCODE_PLANNER_MODEL`,
+`SANDCASTLE_OPENCODE_IMPLEMENTER_MODEL`, `SANDCASTLE_OPENCODE_REVIEWER_MODEL`,
+and `SANDCASTLE_OPENCODE_MERGER_MODEL`. If no model is configured, Sandcastle
+omits the OpenCode `model` field and the OpenCode service default is used.
+
+When `OPENCODE_SERVER_PASSWORD` is set, the wrapper uses Basic Auth for service
+requests. `OPENCODE_SERVER_USERNAME` defaults to `opencode`.
+
+`opencode()` remains the legacy `opencode run` agent provider. Use
+`opencodeService()` when you want a sandbox-local OpenCode HTTP service,
+per-role models, and JSONL parsing.
 
 ### Provider `env`
 

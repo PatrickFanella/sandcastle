@@ -791,6 +791,92 @@ describe("InitService scaffold", () => {
     ).rejects.toThrow("nonexistent");
   });
 
+  describe("parallel-planner-with-review-opencode template", () => {
+    it("appears in listTemplates()", () => {
+      const templates = listTemplates();
+      expect(
+        templates.some(
+          (t) => t.name === "parallel-planner-with-review-opencode",
+        ),
+      ).toBe(true);
+    });
+
+    it("requires the opencode agent", async () => {
+      const dir = await makeDir();
+      await expect(
+        runScaffold(dir, {
+          templateName: "parallel-planner-with-review-opencode",
+          agent: claudeCodeAgent,
+          model: claudeCodeAgent.defaultModel,
+        }),
+      ).rejects.toThrow("requires the opencode agent");
+    });
+
+    it("scaffolds OpenCode service assets with the opencode agent", async () => {
+      const dir = await makeDir();
+      await runScaffold(dir, {
+        templateName: "parallel-planner-with-review-opencode",
+        agent: opencodeAgent,
+        model: opencodeAgent.defaultModel,
+      });
+
+      const configDir = join(dir, ".sandcastle");
+      const { access } = await import("node:fs/promises");
+
+      await expect(
+        access(join(configDir, "main.mts")),
+      ).resolves.toBeUndefined();
+      await expect(
+        access(join(configDir, "opencode-service-agent.mts")),
+      ).resolves.toBeUndefined();
+      await expect(
+        access(join(configDir, "opencode", "opencode.json")),
+      ).resolves.toBeUndefined();
+    });
+
+    it("keeps OpenCode service calls and does not rewrite them to legacy opencode()", async () => {
+      const dir = await makeDir();
+      await runScaffold(dir, {
+        templateName: "parallel-planner-with-review-opencode",
+        agent: opencodeAgent,
+        model: opencodeAgent.defaultModel,
+      });
+
+      const mainTs = await readFile(
+        join(dir, ".sandcastle", "main.mts"),
+        "utf-8",
+      );
+      expect(mainTs).toContain("sandcastle.opencodeService");
+      expect(mainTs).toContain('role: "planner"');
+      expect(mainTs).toContain('role: "implementer"');
+      expect(mainTs).toContain('role: "reviewer"');
+      expect(mainTs).toContain('role: "merger"');
+      expect(mainTs).not.toContain("sandcastle.opencode(");
+    });
+
+    it("appends OpenCode service env vars and ignores real auth", async () => {
+      const dir = await makeDir();
+      await runScaffold(dir, {
+        templateName: "parallel-planner-with-review-opencode",
+        agent: opencodeAgent,
+        model: opencodeAgent.defaultModel,
+      });
+
+      const configDir = join(dir, ".sandcastle");
+      const envExample = await readFile(
+        join(configDir, ".env.example"),
+        "utf-8",
+      );
+      const gitignore = await readFile(join(configDir, ".gitignore"), "utf-8");
+
+      expect(envExample).toContain("OPENCODE_SERVER_USERNAME=opencode");
+      expect(envExample).toContain("OPENCODE_SERVER_PASSWORD=");
+      expect(envExample).toContain("SANDCASTLE_OPENCODE_PLANNER_MODEL=");
+      expect(envExample).toContain("SANDCASTLE_OPENCODE_MERGER_MODEL=");
+      expect(gitignore).toContain("opencode/auth.json");
+    });
+  });
+
   describe("parallel-planner template", () => {
     it("produces main.mts, plan-prompt.md, implement-prompt.md, merge-prompt.md", async () => {
       const dir = await makeDir();

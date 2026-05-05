@@ -1,0 +1,4 @@
+{
+  "name": "parallel-planner-with-review-opencode",
+  "description": "Plans parallelizable issues, executes with per-branch OpenCode review, merges"
+}
