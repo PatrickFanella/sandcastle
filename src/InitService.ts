@@ -21,7 +21,7 @@ const TEMPLATES: TemplateMetadata[] = [
   },
   {
     name: "simple-loop",
-    description: "Picks GitHub issues one by one and closes them",
+    description: "Picks issues one by one and closes them",
   },
   {
     name: "sequential-reviewer",
