@@ -91,8 +91,16 @@ A work item from the **backlog manager** that the **agent** selects and works on
 _Avoid_: "job", "work item", "ticket"
 
 **Completion signal**:
-The `<promise>COMPLETE</promise>` marker in the **agent**'s output indicating all actionable tasks are finished.
-_Avoid_: "done flag", "exit signal"
+The `<promise>COMPLETE</promise>` marker in the **agent**'s output indicating all actionable tasks are finished. A pure termination signal -- carries no payload. Distinct from **structured output**.
+_Avoid_: "done flag", "exit signal", conflating with **structured output**
+
+**Structured output**:
+A schema-validated JSON payload emitted by the **agent** inside a caller-specified XML tag and returned to the caller of `run()`. Orthogonal to the **completion signal** -- a run can use either, both, or neither.
+_Avoid_: "output payload", "result", "JSON output"
+
+**Output schema**:
+The Standard Schema validator (e.g. Zod, Valibot) the caller passes alongside the XML tag name to parse and validate **structured output**.
+_Avoid_: "validator", "result schema"
 
 ### Prompts
 
